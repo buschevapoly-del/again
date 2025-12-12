@@ -1047,4 +1047,652 @@
                                             'rgba(255, 0, 122, 0.7)',
                                             'rgba(255, 0, 122, 0.7)',
                                             'rgba(255, 0, 122, 0.7)',
-                                            'rgba(255
+                                            'rgba(255, 0, 122, 0.7)'
+                                        ],
+                                        borderColor: '#ff007a',
+                                        borderWidth: 2
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        labels: {
+                                            color: '#ffffff',
+                                            font: {
+                                                size: 12
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        grid: {
+                                            color: 'rgba(255, 255, 255, 0.1)'
+                                        },
+                                        ticks: {
+                                            color: '#ffffff'
+                                        }
+                                    },
+                                    y: {
+                                        beginAtZero: true,
+                                        max: 1,
+                                        grid: {
+                                            color: 'rgba(255, 255, 255, 0.1)'
+                                        },
+                                        ticks: {
+                                            color: '#ffffff',
+                                            callback: function(value) {
+                                                return (value * 100).toFixed(0) + '%';
+                                            }
+                                        },
+                                        title: {
+                                            display: true,
+                                            text: 'Probability',
+                                            color: '#ffffff'
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        console.log('✅ Prediction chart initialized');
+                    } else {
+                        console.error('❌ Prediction chart canvas not found');
+                    }
+
+                    // History chart
+                    const historyCtx = document.getElementById('historyChart');
+                    if (historyCtx) {
+                        this.charts.history = new Chart(historyCtx.getContext('2d'), {
+                            type: 'line',
+                            data: {
+                                labels: [],
+                                datasets: [{
+                                    label: 'S&P 500 Price',
+                                    data: [],
+                                    borderColor: '#ff007a',
+                                    backgroundColor: 'rgba(255, 0, 122, 0.1)',
+                                    fill: true,
+                                    tension: 0.4,
+                                    borderWidth: 2
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        labels: {
+                                            color: '#ffffff'
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        grid: {
+                                            color: 'rgba(255, 255, 255, 0.1)'
+                                        },
+                                        ticks: {
+                                            color: '#ffffff',
+                                            maxTicksLimit: 8
+                                        }
+                                    },
+                                    y: {
+                                        grid: {
+                                            color: 'rgba(255, 255, 255, 0.1)'
+                                        },
+                                        ticks: {
+                                            color: '#ffffff',
+                                            callback: function(value) {
+                                                return '$' + value.toLocaleString();
+                                            }
+                                        },
+                                        title: {
+                                            display: true,
+                                            text: 'Price (USD)',
+                                            color: '#ffffff'
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        console.log('✅ History chart initialized');
+                    } else {
+                        console.error('❌ History chart canvas not found');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error initializing charts:', error);
+                    this.showStatus(`Chart initialization error: ${error.message}`, 'error');
+                }
+            }
+
+            /**
+             * Check for previously saved model
+             */
+            async checkForSavedModel() {
+                console.log('Checking for saved model...');
+                if (!this.model) {
+                    this.model = new GRUModel();
+                }
+                
+                try {
+                    const hasSavedModel = await this.model.loadModel();
+                    if (hasSavedModel) {
+                        console.log('✅ Loaded saved model from IndexedDB');
+                        this.showStatus('Loaded previously trained model from browser storage', 'success');
+                        this.updateButtonStates('modelLoaded');
+                    } else {
+                        console.log('ℹ️ No saved model found');
+                    }
+                } catch (error) {
+                    console.log('No saved model found:', error.message);
+                }
+            }
+
+            /**
+             * Fetch S&P 500 data from Yahoo Finance
+             */
+            async fetchData() {
+                if (this.isProcessing) {
+                    console.log('⏳ Already processing, skipping...');
+                    return;
+                }
+                
+                this.isProcessing = true;
+                console.log('📥 Starting data fetch...');
+                this.showStatus('Fetching S&P 500 data from Yahoo Finance...', 'info');
+                this.setProgress(10, 'Connecting to data source');
+                this.disableButtons(true);
+                this.showLoader('refreshLoader', true);
+                
+                try {
+                    // Show loading state
+                    const fileInfo = document.getElementById('fileInfo');
+                    if (fileInfo) {
+                        fileInfo.classList.add('active');
+                        fileInfo.innerHTML = `
+                            <div style="text-align: center; padding: 20px;">
+                                <div class="loader"></div>
+                                <p>Loading S&P 500 data...</p>
+                            </div>
+                        `;
+                    }
+
+                    // Fetch data
+                    this.setProgress(30, 'Downloading data');
+                    this.currentData = await this.dataLoader.fetchYahooFinanceData(5);
+                    console.log('✅ Data fetched successfully');
+                    
+                    // Display data info
+                    const stats = this.dataLoader.getStatistics();
+                    if (stats && fileInfo) {
+                        this.setProgress(70, 'Processing data');
+                        fileInfo.innerHTML = `
+                            <div style="text-align: center; margin-bottom: 15px;">
+                                <h4 style="color: #ff007a; margin-bottom: 5px;">${stats.symbol}</h4>
+                                <p style="opacity: 0.8;">${stats.dateRange.start} to ${stats.dateRange.end}</p>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <strong>Days Loaded</strong>
+                                    <div>${stats.numDays.toLocaleString()}</div>
+                                </div>
+                                <div class="info-item">
+                                    <strong>Current Price</strong>
+                                    <div>$${stats.priceRange.current.toFixed(2)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <strong>Price Range</strong>
+                                    <div>$${stats.priceRange.min.toFixed(0)} - $${stats.priceRange.max.toFixed(0)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <strong>Avg Daily Return</strong>
+                                    <div>${(stats.returns.average * 100).toFixed(2)}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <strong>Volatility</strong>
+                                    <div>${(stats.returns.volatility * 100).toFixed(2)}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <strong>Positive Days</strong>
+                                    <div>${stats.returns.positiveDays} / ${stats.returns.totalDays}</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    this.setProgress(90, 'Updating charts');
+                    this.showStatus(`✅ Successfully loaded ${stats?.numDays || 0} days of S&P 500 data`, 'success');
+                    this.updateButtonStates('dataLoaded');
+                    
+                    // Update history chart
+                    this.updateHistoryChart();
+                    
+                    // Check for saved model
+                    await this.checkForSavedModel();
+                    
+                } catch (error) {
+                    console.error('❌ Error fetching data:', error);
+                    this.showStatus(`Error: ${error.message}`, 'error');
+                    
+                    // Show error in file info
+                    const fileInfo = document.getElementById('fileInfo');
+                    if (fileInfo) {
+                        fileInfo.innerHTML = `
+                            <div style="text-align: center; color: #ff4444; padding: 20px;">
+                                <div style="font-size: 2rem; margin-bottom: 10px;">⚠️</div>
+                                <h4>Data Load Error</h4>
+                                <p>${error.message}</p>
+                                <p style="margin-top: 10px; font-size: 0.9em; opacity: 0.8;">
+                                    Using simulated data for demonstration.
+                                </p>
+                            </div>
+                        `;
+                    }
+                } finally {
+                    this.isProcessing = false;
+                    this.setProgress(100, 'Data loaded');
+                    this.disableButtons(false);
+                    this.showLoader('refreshLoader', false);
+                }
+            }
+
+            /**
+             * Update historical price chart
+             */
+            updateHistoryChart() {
+                if (!this.dataLoader.data || !this.charts.history) {
+                    console.log('⚠️ No data or chart for history update');
+                    return;
+                }
+                
+                const { dates, prices } = this.dataLoader.data;
+                console.log(`📊 Updating history chart with ${dates.length} data points`);
+                
+                // Sample data for better performance
+                const sampleStep = Math.max(1, Math.ceil(dates.length / 80));
+                const sampledDates = [];
+                const sampledPrices = [];
+                
+                for (let i = 0; i < dates.length; i += sampleStep) {
+                    sampledDates.push(dates[i]);
+                    sampledPrices.push(prices[i]);
+                }
+                
+                // Add the last data point
+                if (dates.length > 0 && sampledDates[sampledDates.length - 1] !== dates[dates.length - 1]) {
+                    sampledDates.push(dates[dates.length - 1]);
+                    sampledPrices.push(prices[prices.length - 1]);
+                }
+                
+                // Update chart
+                this.charts.history.data.labels = sampledDates;
+                this.charts.history.data.datasets[0].data = sampledPrices;
+                this.charts.history.update('resize');
+                
+                console.log('✅ History chart updated');
+            }
+
+            /**
+             * Preprocess data for training
+             */
+            async preprocessData() {
+                if (!this.dataLoader.data) {
+                    this.showStatus('Please load data first', 'error');
+                    return;
+                }
+                
+                this.isProcessing = true;
+                this.showStatus('Preprocessing data...', 'info');
+                this.setProgress(30, 'Normalizing data');
+                this.disableButtons(true);
+                this.showLoader('preprocessLoader', true);
+                
+                try {
+                    // Normalize data
+                    this.dataLoader.normalizeData();
+                    this.setProgress(60, 'Creating sequences');
+                    
+                    // Prepare dataset
+                    this.dataLoader.prepareDataset(60, 5, 0.8);
+                    this.setProgress(100, 'Data preprocessed');
+                    
+                    this.showStatus('✅ Data preprocessed successfully. Ready for training.', 'success');
+                    this.updateButtonStates('dataPreprocessed');
+                    
+                    // Display dataset info
+                    const stats = this.dataLoader.getStatistics();
+                    if (stats) {
+                        this.showStatus(`Dataset created: ${stats.trainSamples} training samples, ${stats.testSamples} test samples`, 'info');
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Error preprocessing data:', error);
+                    this.showStatus(`Error: ${error.message}`, 'error');
+                } finally {
+                    this.isProcessing = false;
+                    this.disableButtons(false);
+                    this.showLoader('preprocessLoader', false);
+                }
+            }
+
+            /**
+             * Train the GRU model
+             */
+            async trainModel() {
+                if (!this.dataLoader.X_train || !this.dataLoader.y_train) {
+                    this.showStatus('Please preprocess data first', 'error');
+                    return;
+                }
+                
+                this.isProcessing = true;
+                this.showStatus('Training GRU model...', 'info');
+                this.setProgress(0, 'Initializing model');
+                this.disableButtons(true);
+                this.showLoader('trainLoader', true);
+                
+                try {
+                    // Initialize model if needed
+                    if (!this.model) {
+                        this.model = new GRUModel(60, 1, 5);
+                    }
+                    
+                    // Build model
+                    this.setProgress(10, 'Building model');
+                    this.model.buildModel();
+                    
+                    // Train model
+                    this.setProgress(20, 'Starting training');
+                    
+                    const trainingHistory = await this.model.train(
+                        this.dataLoader.X_train,
+                        this.dataLoader.y_train,
+                        (epoch, logs, totalEpochs) => {
+                            const progress = 20 + (epoch / totalEpochs) * 70;
+                            this.setProgress(progress, `Training epoch ${epoch}/${totalEpochs}`);
+                            
+                            // Update training chart
+                            if (this.charts.training) {
+                                this.charts.training.data.labels.push(epoch);
+                                this.charts.training.data.datasets[0].data.push(logs.loss);
+                                this.charts.training.data.datasets[1].data.push(logs.val_loss || 0);
+                                
+                                // Update chart every 5 epochs for performance
+                                if (epoch % 5 === 0 || epoch === totalEpochs) {
+                                    this.charts.training.update();
+                                }
+                            }
+                        }
+                    );
+                    
+                    this.setProgress(95, 'Evaluating model');
+                    
+                    // Evaluate model
+                    const metrics = this.model.evaluate(this.dataLoader.X_test, this.dataLoader.y_test);
+                    
+                    // Update metrics display
+                    document.getElementById('trainLoss').textContent = 
+                        trainingHistory.history.loss[trainingHistory.history.loss.length - 1].toFixed(4);
+                    document.getElementById('valLoss').textContent = 
+                        trainingHistory.history.val_loss[trainingHistory.history.val_loss.length - 1].toFixed(4);
+                    document.getElementById('rmse').textContent = metrics.rmse.toFixed(4);
+                    document.getElementById('accuracy').textContent = (metrics.accuracy * 100).toFixed(2) + '%';
+                    
+                    // Final chart update
+                    if (this.charts.training) {
+                        this.charts.training.update();
+                    }
+                    
+                    this.setProgress(100, 'Training complete');
+                    this.showStatus(`✅ Model trained successfully! Accuracy: ${(metrics.accuracy * 100).toFixed(2)}%`, 'success');
+                    this.updateButtonStates('modelTrained');
+                    
+                    // Save model
+                    await this.model.saveModel();
+                    
+                } catch (error) {
+                    console.error('❌ Error training model:', error);
+                    this.showStatus(`Error: ${error.message}`, 'error');
+                } finally {
+                    this.isProcessing = false;
+                    this.disableButtons(false);
+                    this.showLoader('trainLoader', false);
+                }
+            }
+
+            /**
+             * Make predictions for next 5 days
+             */
+            async makePredictions() {
+                if (!this.model || !this.model.isTrained) {
+                    this.showStatus('Please train the model first', 'error');
+                    return;
+                }
+                
+                if (!this.dataLoader.normalizedData) {
+                    this.showStatus('Please preprocess data first', 'error');
+                    return;
+                }
+                
+                this.isProcessing = true;
+                this.showStatus('Making predictions...', 'info');
+                this.setProgress(0, 'Preparing input');
+                this.disableButtons(true);
+                
+                try {
+                    // Get latest sequence for prediction
+                    const latestSequence = this.dataLoader.getLatestSequence(60);
+                    this.setProgress(30, 'Running model');
+                    
+                    // Make prediction
+                    const predictions = this.model.predict(latestSequence);
+                    
+                    // Clean up
+                    latestSequence.dispose();
+                    
+                    this.setProgress(80, 'Updating display');
+                    
+                    // Update prediction grid
+                    const predictionGrid = document.getElementById('predictionGrid');
+                    if (predictionGrid) {
+                        const dayElements = predictionGrid.querySelectorAll('.prediction-day');
+                        
+                        predictions.forEach((pred, index) => {
+                            if (dayElements[index]) {
+                                const valueElement = dayElements[index].querySelector('.prediction-value');
+                                const confidenceElement = dayElements[index].querySelector('.prediction-confidence');
+                                const probabilityElement = dayElements[index].querySelector('div:nth-child(4)');
+                                
+                                if (valueElement) {
+                                    valueElement.textContent = pred.prediction === 1 ? '↑ UP' : '↓ DOWN';
+                                    valueElement.className = `prediction-value ${pred.prediction === 1 ? 'up' : 'down'}`;
+                                }
+                                
+                                if (confidenceElement) {
+                                    confidenceElement.textContent = `Confidence: ${(pred.confidence * 100).toFixed(1)}%`;
+                                }
+                                
+                                if (probabilityElement) {
+                                    probabilityElement.textContent = `Probability: ${(pred.probability * 100).toFixed(1)}%`;
+                                }
+                                
+                                // Add visual feedback
+                                dayElements[index].style.borderColor = pred.prediction === 1 ? 
+                                    'rgba(0, 255, 136, 0.3)' : 'rgba(255, 68, 68, 0.3)';
+                            }
+                        });
+                    }
+                    
+                    // Update prediction chart
+                    if (this.charts.prediction) {
+                        this.charts.prediction.data.datasets[0].data = predictions.map(p => p.probability);
+                        this.charts.prediction.update();
+                    }
+                    
+                    this.setProgress(100, 'Predictions ready');
+                    this.showStatus('✅ Predictions generated successfully!', 'success');
+                    
+                    // Display summary
+                    const upDays = predictions.filter(p => p.prediction === 1).length;
+                    const avgConfidence = predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length;
+                    
+                    this.showStatus(
+                        `Summary: ${upDays}/5 days predicted UP | Average confidence: ${(avgConfidence * 100).toFixed(1)}%`,
+                        'info'
+                    );
+                    
+                } catch (error) {
+                    console.error('❌ Error making predictions:', error);
+                    this.showStatus(`Error: ${error.message}`, 'error');
+                } finally {
+                    this.isProcessing = false;
+                    this.disableButtons(false);
+                }
+            }
+
+            /**
+             * Show or hide loader
+             * @param {string} loaderId - Loader element ID
+             * @param {boolean} show - Whether to show or hide
+             */
+            showLoader(loaderId, show) {
+                const loader = document.getElementById(loaderId);
+                if (loader) {
+                    loader.style.display = show ? 'inline-block' : 'none';
+                }
+            }
+
+            /**
+             * Update button states based on app state
+             * @param {string} state - Current state
+             */
+            updateButtonStates(state) {
+                const preprocessBtn = document.getElementById('preprocessBtn');
+                const trainBtn = document.getElementById('trainBtn');
+                const predictBtn = document.getElementById('predictBtn');
+                
+                switch (state) {
+                    case 'dataLoaded':
+                        if (preprocessBtn) preprocessBtn.disabled = false;
+                        if (trainBtn) trainBtn.disabled = true;
+                        if (predictBtn) predictBtn.disabled = true;
+                        break;
+                        
+                    case 'dataPreprocessed':
+                        if (preprocessBtn) preprocessBtn.disabled = true;
+                        if (trainBtn) trainBtn.disabled = false;
+                        if (predictBtn) predictBtn.disabled = true;
+                        break;
+                        
+                    case 'modelLoaded':
+                    case 'modelTrained':
+                        if (preprocessBtn) preprocessBtn.disabled = true;
+                        if (trainBtn) trainBtn.disabled = false;
+                        if (predictBtn) predictBtn.disabled = false;
+                        break;
+                        
+                    default:
+                        if (preprocessBtn) preprocessBtn.disabled = true;
+                        if (trainBtn) trainBtn.disabled = true;
+                        if (predictBtn) predictBtn.disabled = true;
+                }
+                console.log(`Button states updated: ${state}`);
+            }
+
+            /**
+             * Disable or enable all buttons
+             * @param {boolean} disable - Whether to disable buttons
+             */
+            disableButtons(disable) {
+                const buttons = ['refreshDataBtn', 'preprocessBtn', 'trainBtn', 'predictBtn'];
+                buttons.forEach(btnId => {
+                    const btn = document.getElementById(btnId);
+                    if (btn) {
+                        btn.disabled = disable;
+                    }
+                });
+            }
+
+            /**
+             * Show status message
+             * @param {string} message - Status message
+             * @param {string} type - Message type (info, success, error, warning)
+             */
+            showStatus(message, type = 'info') {
+                const statusContainer = document.getElementById('statusContainer');
+                if (!statusContainer) {
+                    console.log(`Status (${type}): ${message}`);
+                    return;
+                }
+                
+                const statusDiv = document.createElement('div');
+                statusDiv.className = `status ${type} active`;
+                statusDiv.innerHTML = `
+                    <strong>${type.toUpperCase()}:</strong> ${message}
+                `;
+                
+                // Remove old status messages
+                while (statusContainer.firstChild) {
+                    statusContainer.removeChild(statusContainer.firstChild);
+                }
+                
+                statusContainer.appendChild(statusDiv);
+                
+                // Auto-remove after 5 seconds for non-error messages
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        if (statusDiv.parentNode) {
+                            statusDiv.classList.remove('active');
+                            setTimeout(() => {
+                                if (statusDiv.parentNode) {
+                                    statusDiv.remove();
+                                }
+                            }, 300);
+                        }
+                    }, 5000);
+                }
+            }
+
+            /**
+             * Update progress bar
+             * @param {number} percentage - Progress percentage
+             * @param {string} text - Progress text
+             */
+            setProgress(percentage, text) {
+                const progressFill = document.getElementById('progressFill');
+                const progressText = document.getElementById('progressText');
+                
+                if (progressFill) {
+                    progressFill.style.width = `${Math.min(100, Math.max(0, percentage))}%`;
+                }
+                
+                if (progressText) {
+                    progressText.textContent = text;
+                }
+            }
+        }
+
+        // Initialize the app
+        console.log('Creating StockPredictorApp instance...');
+        try {
+            window.app = new StockPredictorApp();
+            console.log('✅ StockPredictorApp initialized successfully');
+        } catch (error) {
+            console.error('❌ Failed to initialize StockPredictorApp:', error);
+            
+            // Show error to user
+            const statusContainer = document.getElementById('statusContainer');
+            if (statusContainer) {
+                statusContainer.innerHTML = `
+                    <div class="status error active">
+                        <strong>ERROR:</strong> Failed to initialize application: ${error.message}
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
