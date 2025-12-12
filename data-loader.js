@@ -1,130 +1,169 @@
 // data-loader.js
 /**
  * Data Loader Module for S&P 500 Stock Prediction
- * Handles CSV parsing, normalization, and dataset preparation
+ * Fetches data from Yahoo Finance API and prepares dataset
  */
 export class DataLoader {
     constructor() {
         this.data = null;
         this.normalizedData = null;
-        this.stockSymbols = [];
         this.dateIndex = [];
-        this.minValues = null;
-        this.maxValues = null;
+        this.minValue = null;
+        this.maxValue = null;
         this.X_train = null;
         this.y_train = null;
         this.X_test = null;
         this.y_test = null;
         this.trainIndices = null;
         this.testIndices = null;
+        this.returns = null;
+        this.symbol = '^GSPC'; // S&P 500 index symbol
     }
 
     /**
-     * Load and parse CSV file from file input
-     * @param {File} file - CSV file object
-     * @returns {Promise<Object>} Parsed data with dates, symbols, and prices
+     * Fetch S&P 500 historical data from Yahoo Finance
+     * @param {number} years - Number of years of historical data (default: 5)
+     * @returns {Promise<Object>} Historical price data
      */
-    async loadCSV(file) {
-        return new Promise((resolve, reject) => {
-            if (!file) {
-                reject(new Error('No file provided'));
-                return;
-            }
-
-            const reader = new FileReader();
+    async fetchYahooFinanceData(years = 5) {
+        this.showStatus('Fetching S&P 500 data from Yahoo Finance...', 'info');
+        
+        const endDate = Math.floor(Date.now() / 1000);
+        const startDate = endDate - (years * 365 * 24 * 60 * 60);
+        
+        try {
+            // Using yahoo finance API through CORS proxy
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${this.symbol}?period1=${startDate}&period2=${endDate}&interval=1d&events=history`;
             
-            reader.onload = (event) => {
-                try {
-                    const csvText = event.target.result;
-                    const rows = csvText.split('\n').filter(row => row.trim());
-                    
-                    if (rows.length === 0) {
-                        reject(new Error('CSV file is empty'));
-                        return;
-                    }
-
-                    const headers = rows[0].split(',').map(h => h.trim());
-                    
-                    // Extract dates and stock symbols
-                    this.dateIndex = rows.slice(1).map(row => row.split(',')[0].trim());
-                    this.stockSymbols = headers.slice(1);
-                    
-                    // Parse price data
-                    const prices = [];
-                    for (let i = 1; i < rows.length; i++) {
-                        const columns = rows[i].split(',');
-                        const rowPrices = columns.slice(1).map(val => parseFloat(val.trim()));
-                        prices.push(rowPrices);
-                    }
-
-                    // Transpose to [symbols, days]
-                    const transposed = [];
-                    for (let i = 0; i < this.stockSymbols.length; i++) {
-                        transposed.push(prices.map(dayPrices => dayPrices[i]));
-                    }
-
-                    this.data = {
-                        dates: this.dateIndex,
-                        symbols: this.stockSymbols,
-                        prices: transposed
-                    };
-
-                    console.log(`Loaded ${this.stockSymbols.length} stocks over ${this.dateIndex.length} days`);
-                    resolve(this.data);
-                } catch (error) {
-                    reject(new Error(`CSV parsing failed: ${error.message}`));
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (!result.chart || !result.chart.result || result.chart.result.length === 0) {
+                throw new Error('Invalid response format from Yahoo Finance');
+            }
+            
+            const chartData = result.chart.result[0];
+            const timestamps = chartData.timestamp;
+            const quotes = chartData.indicators.quote[0];
+            const adjClose = chartData.indicators.adjclose[0].adjclose;
+            
+            // Use adjusted close prices when available
+            const prices = adjClose || quotes.close;
+            
+            if (!prices || prices.length === 0) {
+                throw new Error('No price data available');
+            }
+            
+            // Convert timestamps to dates
+            this.dateIndex = timestamps.map(ts => {
+                const date = new Date(ts * 1000);
+                return date.toISOString().split('T')[0];
+            });
+            
+            // Filter out null values and ensure data integrity
+            const validData = [];
+            const validDates = [];
+            
+            for (let i = 0; i < prices.length; i++) {
+                if (prices[i] !== null && !isNaN(prices[i]) && prices[i] > 0) {
+                    validData.push(prices[i]);
+                    validDates.push(this.dateIndex[i]);
                 }
+            }
+            
+            this.data = {
+                dates: validDates,
+                symbol: this.symbol,
+                prices: validData
             };
-
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsText(file);
-        });
+            
+            console.log(`Fetched ${validData.length} days of S&P 500 data`);
+            return this.data;
+            
+        } catch (error) {
+            console.error('Error fetching Yahoo Finance data:', error);
+            
+            // Fallback to simulated data if API fails
+            this.showStatus('Using simulated data (API limited). Loading...', 'warning');
+            return this.generateSimulatedData(years);
+        }
     }
 
     /**
-     * Normalize price data using Min-Max scaling per stock
+     * Generate simulated S&P 500 data for demo purposes
+     * @param {number} years - Number of years of data
+     * @returns {Object} Simulated price data
+     */
+    generateSimulatedData(years) {
+        const days = years * 252; // Trading days per year
+        let price = 4000; // Starting price
+        
+        const dates = [];
+        const prices = [];
+        
+        const startDate = new Date();
+        startDate.setFullYear(startDate.getFullYear() - years);
+        
+        for (let i = 0; i < days; i++) {
+            const currentDate = new Date(startDate);
+            currentDate.setDate(currentDate.getDate() + i);
+            
+            // Generate realistic price movements
+            const dailyReturn = (Math.random() - 0.5) * 0.04; // ±2% daily
+            const volatility = 0.012;
+            const drift = 0.0004;
+            
+            const change = price * (drift + volatility * dailyReturn);
+            price += change;
+            
+            // Ensure price stays positive
+            price = Math.max(price, 100);
+            
+            dates.push(currentDate.toISOString().split('T')[0]);
+            prices.push(price);
+        }
+        
+        this.data = {
+            dates: dates,
+            symbol: '^GSPC (Simulated)',
+            prices: prices
+        };
+        
+        console.log(`Generated ${days} days of simulated S&P 500 data`);
+        return this.data;
+    }
+
+    /**
+     * Normalize price data using Min-Max scaling
      */
     normalizeData() {
         if (!this.data) {
-            throw new Error('No data loaded. Call loadCSV first.');
+            throw new Error('No data loaded. Call fetchYahooFinanceData first.');
         }
 
         const { prices } = this.data;
-        this.minValues = [];
-        this.maxValues = [];
-        this.normalizedData = [];
+        
+        this.minValue = Math.min(...prices);
+        this.maxValue = Math.max(...prices);
+        
+        // Apply Min-Max normalization
+        this.normalizedData = prices.map(p => 
+            (p - this.minValue) / (this.maxValue - this.minValue)
+        );
 
-        // Normalize each stock independently
-        for (let i = 0; i < prices.length; i++) {
-            const stockPrices = prices[i];
-            const min = Math.min(...stockPrices.filter(p => !isNaN(p)));
-            const max = Math.max(...stockPrices.filter(p => !isNaN(p)));
-            
-            this.minValues.push(min);
-            this.maxValues.push(max);
-            
-            // Apply Min-Max normalization
-            const normalized = stockPrices.map(p => 
-                isNaN(p) ? 0 : (p - min) / (max - min)
-            );
-            this.normalizedData.push(normalized);
-        }
-
-        console.log('Data normalized successfully');
-    }
-
-    /**
-     * Calculate daily returns for a given price series
-     * @param {Array} prices - Array of prices
-     * @returns {Array} Daily returns
-     */
-    calculateReturns(prices) {
-        const returns = [];
+        // Calculate returns
+        this.returns = [];
         for (let i = 1; i < prices.length; i++) {
             const ret = (prices[i] - prices[i-1]) / prices[i-1];
-            returns.push(ret);
+            this.returns.push(ret);
         }
-        return returns;
+        
+        console.log('Data normalized successfully');
     }
 
     /**
@@ -138,48 +177,44 @@ export class DataLoader {
             throw new Error('Data not normalized. Call normalizeData first.');
         }
 
-        const numStocks = this.normalizedData.length;
-        const numDays = this.normalizedData[0].length;
-        
-        // Calculate returns for each stock
-        const returns = [];
-        for (let i = 0; i < numStocks; i++) {
-            const originalPrices = this.data.prices[i];
-            returns.push(this.calculateReturns(originalPrices));
+        if (this.returns.length < sequenceLength + predictionDays) {
+            throw new Error(`Insufficient data. Need at least ${sequenceLength + predictionDays} days after returns calculation.`);
         }
 
-        // Create sliding window samples
+        const numDays = this.normalizedData.length;
+        
+        // Create sliding window samples using normalized prices as input
+        // and binary returns (positive/negative) as output
         const samples = [];
         const labels = [];
         
-        // We use the first stock (assumed to be S&P 500 index) as target
-        const targetReturns = returns[0];
-        
         for (let i = 0; i < numDays - sequenceLength - predictionDays; i++) {
-            // Input: sequence of normalized prices for all stocks
-            const input = [];
-            for (let s = 0; s < numStocks; s++) {
-                const seq = this.normalizedData[s].slice(i, i + sequenceLength);
-                input.push(seq);
-            }
+            // Input: sequence of normalized prices
+            const input = this.normalizedData.slice(i, i + sequenceLength);
             
-            // Output: binary classification of next 5 days returns (1 if positive, 0 if negative)
-            const futureReturns = targetReturns.slice(i + sequenceLength, i + sequenceLength + predictionDays);
+            // Output: binary classification of next 5 days returns
+            // We use the returns starting from i+sequenceLength
+            const futureReturns = this.returns.slice(i + sequenceLength, i + sequenceLength + predictionDays);
             const output = futureReturns.map(ret => ret > 0 ? 1 : 0);
             
             samples.push(input);
             labels.push(output);
         }
 
-        // Split into training and testing sets
+        if (samples.length === 0) {
+            throw new Error('No samples generated. Check data length and parameters.');
+        }
+
+        // Split into training and testing sets chronologically
         const splitIndex = Math.floor(samples.length * trainSplit);
         this.trainIndices = Array.from({length: splitIndex}, (_, i) => i);
         this.testIndices = Array.from({length: samples.length - splitIndex}, (_, i) => i + splitIndex);
 
         // Convert to tensors
+        // Reshape samples to [batch, 1, sequenceLength] for single time series
         this.X_train = tf.tensor3d(
-            this.trainIndices.map(idx => samples[idx]),
-            [splitIndex, numStocks, sequenceLength]
+            this.trainIndices.map(idx => [samples[idx]]),
+            [splitIndex, 1, sequenceLength]
         );
         
         this.y_train = tf.tensor2d(
@@ -188,8 +223,8 @@ export class DataLoader {
         );
         
         this.X_test = tf.tensor3d(
-            this.testIndices.map(idx => samples[idx]),
-            [samples.length - splitIndex, numStocks, sequenceLength]
+            this.testIndices.map(idx => [samples[idx]]),
+            [samples.length - splitIndex, 1, sequenceLength]
         );
         
         this.y_test = tf.tensor2d(
@@ -202,22 +237,82 @@ export class DataLoader {
     }
 
     /**
+     * Get the most recent sequence for prediction
+     * @param {number} sequenceLength - Length of input sequence
+     * @returns {tf.Tensor} Tensor of shape [1, 1, sequenceLength]
+     */
+    getLatestSequence(sequenceLength = 60) {
+        if (!this.normalizedData || this.normalizedData.length < sequenceLength) {
+            throw new Error('Insufficient data for prediction');
+        }
+        
+        const latestSequence = this.normalizedData.slice(-sequenceLength);
+        return tf.tensor3d([[latestSequence]], [1, 1, sequenceLength]);
+    }
+
+    /**
+     * Denormalize a normalized value back to original price
+     * @param {number} normalizedValue - Normalized value (0-1)
+     * @returns {number} Original price
+     */
+    denormalizePrice(normalizedValue) {
+        if (this.minValue === null || this.maxValue === null) {
+            throw new Error('Normalization parameters not available');
+        }
+        return normalizedValue * (this.maxValue - this.minValue) + this.minValue;
+    }
+
+    /**
      * Get dataset statistics
      * @returns {Object} Dataset statistics
      */
     getStatistics() {
         if (!this.data) return null;
 
+        const prices = this.data.prices;
+        const returns = this.returns || [];
+        
+        const avgReturn = returns.length > 0 ? 
+            returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+        
+        const volatility = returns.length > 0 ?
+            Math.sqrt(returns.reduce((sum, ret) => sum + Math.pow(ret - avgReturn, 2), 0) / returns.length) : 0;
+
         return {
-            numStocks: this.stockSymbols.length,
-            numDays: this.dateIndex.length,
+            symbol: this.data.symbol,
+            numDays: this.data.dates.length,
             dateRange: {
-                start: this.dateIndex[0],
-                end: this.dateIndex[this.dateIndex.length - 1]
+                start: this.data.dates[0],
+                end: this.data.dates[this.data.dates.length - 1]
+            },
+            priceRange: {
+                min: Math.min(...prices),
+                max: Math.max(...prices),
+                current: prices[prices.length - 1]
+            },
+            returns: {
+                average: avgReturn,
+                volatility: volatility,
+                positiveDays: returns.filter(r => r > 0).length,
+                totalDays: returns.length
             },
             trainSamples: this.trainIndices ? this.trainIndices.length : 0,
             testSamples: this.testIndices ? this.testIndices.length : 0
         };
+    }
+
+    /**
+     * Get historical returns for visualization
+     * @returns {Array} Array of returns data points
+     */
+    getReturnsData() {
+        if (!this.returns || !this.data) return [];
+        
+        return this.returns.map((ret, idx) => ({
+            date: this.data.dates[idx + 1], // Returns start from day 2
+            return: ret,
+            positive: ret > 0
+        }));
     }
 
     /**
@@ -228,5 +323,12 @@ export class DataLoader {
         tensors.forEach(tensor => {
             if (tensor) tensor.dispose();
         });
+    }
+
+    /**
+     * Show status message (to be implemented in app.js)
+     */
+    showStatus(message, type) {
+        console.log(`${type}: ${message}`);
     }
 }
