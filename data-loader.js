@@ -1,4 +1,4 @@
-// data-loader.js - SIMPLIFIED WORKING VERSION
+// data-loader.js - NO RECURSION VERSION
 export class DataLoader {
     constructor() {
         this.data = null;
@@ -11,271 +11,221 @@ export class DataLoader {
         this.y_test = null;
         this.returns = null;
         this.symbol = '^GSPC';
+        this.fetchAttempted = false; // Prevent retry loops
     }
 
     /**
-     * Fetch S&P 500 data using multiple reliable methods
+     * Fetch S&P 500 data - SIMPLE VERSION, NO RECURSION
      */
-    async fetchYahooFinanceData(startYear = 2015) {
-        console.log('Fetching S&P 500 data...');
+    async fetchYahooFinanceData(startYear = 2020) {
+        console.log('Starting data fetch...');
         
-        // Try Method 1: Yahoo Finance CSV API (most reliable)
+        // ONLY try ONE method to avoid any recursion
         try {
-            console.log('Trying Yahoo Finance CSV API...');
-            const data = await this.fetchYahooCSV(startYear);
-            if (data && data.prices.length > 100) {
-                this.data = data;
-                console.log(`✅ Got ${data.prices.length} days from Yahoo CSV`);
-                return data;
-            }
-        } catch (e) {
-            console.log('Yahoo CSV failed:', e.message);
+            const data = await this.fetchSimpleYahooData(startYear);
+            this.data = data;
+            console.log(`✅ Got ${data.prices.length} days of data`);
+            return data;
+        } catch (error) {
+            console.log('API failed, using simulated data:', error.message);
+            // Use simulated data immediately - NO RETRY, NO RECURSION
+            return this.generateSimpleSimulatedData(startYear);
         }
-        
-        // Try Method 2: Alpha Vantage API (requires free API key)
-        try {
-            console.log('Trying Alpha Vantage API...');
-            const data = await this.fetchAlphaVantage(startYear);
-            if (data && data.prices.length > 100) {
-                this.data = data;
-                console.log(`✅ Got ${data.prices.length} days from Alpha Vantage`);
-                return data;
-            }
-        } catch (e) {
-            console.log('Alpha Vantage failed:', e.message);
-        }
-        
-        // Try Method 3: IEX Cloud API (free tier available)
-        try {
-            console.log('Trying IEX Cloud API...');
-            const data = await this.fetchIEXCloud(startYear);
-            if (data && data.prices.length > 100) {
-                this.data = data;
-                console.log(`✅ Got ${data.prices.length} days from IEX Cloud`);
-                return data;
-            }
-        } catch (e) {
-            console.log('IEX Cloud failed:', e.message);
-        }
-        
-        // Fallback to simulated data
-        console.log('All APIs failed, using simulated data...');
-        return this.generateSimpleSimulatedData(startYear);
     }
 
     /**
-     * METHOD 1: Yahoo Finance CSV API (Most Reliable)
+     * SIMPLE Yahoo Finance fetch - NO RETRY LOGIC
      */
-    async fetchYahooCSV(startYear) {
+    async fetchSimpleYahooData(startYear) {
+        console.log('Fetching from Yahoo Finance...');
+        
+        // Use current year - 2 years to get manageable amount of data
+        const actualStartYear = Math.max(startYear, new Date().getFullYear() - 2);
+        const startDate = new Date(actualStartYear, 0, 1);
         const endDate = new Date();
-        const startDate = new Date(startYear, 0, 1);
         
         const period1 = Math.floor(startDate.getTime() / 1000);
         const period2 = Math.floor(endDate.getTime() / 1000);
         
-        // Use this URL format which often works better
-        const url = `https://query1.finance.yahoo.com/v7/finance/download/${this.symbol}?period1=${period1}&period2=${period2}&interval=1d&events=history`;
+        // Use SPY instead of ^GSPC (more reliable)
+        const symbol = 'SPY';
+        const url = `https://query1.finance.yahoo.com/v7/finance/download/${symbol}?period1=${period1}&period2=${period2}&interval=1d&events=history`;
         
-        console.log('Fetching:', url);
+        console.log(`URL: ${url}`);
         
-        const response = await fetch(url);
+        // Use fetch with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const csv = await response.text();
-        const rows = csv.trim().split('\n');
-        
-        const dates = [];
-        const prices = [];
-        
-        // Skip header row
-        for (let i = 1; i < rows.length; i++) {
-            const cols = rows[i].split(',');
-            if (cols.length >= 6) {
-                const date = cols[0];
-                const close = parseFloat(cols[4]); // Close price
-                
-                if (!isNaN(close) && close > 0) {
-                    dates.push(date);
-                    prices.push(close);
+        try {
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0'
+                }
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const csv = await response.text();
+            
+            if (!csv || csv.length < 100) {
+                throw new Error('Invalid CSV response');
+            }
+            
+            const rows = csv.trim().split('\n');
+            const dates = [];
+            const prices = [];
+            
+            // Skip header row
+            for (let i = 1; i < rows.length; i++) {
+                const cols = rows[i].split(',');
+                if (cols.length >= 6) {
+                    const date = cols[0];
+                    const close = parseFloat(cols[4]);
+                    
+                    if (!isNaN(close) && close > 0) {
+                        dates.push(date);
+                        prices.push(close);
+                    }
                 }
             }
-        }
-        
-        return {
-            dates: dates,
-            symbol: this.symbol,
-            prices: prices,
-            source: 'Yahoo Finance CSV'
-        };
-    }
-
-    /**
-     * METHOD 2: Alpha Vantage API (Get free API key at alphavantage.co)
-     */
-    async fetchAlphaVantage(startYear) {
-        // Get your FREE API key from: https://www.alphavantage.co/support/#api-key
-        const apiKey = 'demo'; // Replace with your own key for more data
-        const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&outputsize=full&apikey=${apiKey}`;
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (!data['Time Series (Daily)']) {
-            throw new Error('Invalid Alpha Vantage response');
-        }
-        
-        const timeSeries = data['Time Series (Daily)'];
-        const dates = [];
-        const prices = [];
-        
-        // Convert object to arrays and filter by date
-        for (const [date, values] of Object.entries(timeSeries)) {
-            const dateObj = new Date(date);
-            if (dateObj.getFullYear() >= startYear) {
-                const close = parseFloat(values['4. close']);
-                if (!isNaN(close)) {
-                    dates.unshift(date); // Oldest first
-                    prices.unshift(close);
-                }
+            
+            if (dates.length === 0) {
+                throw new Error('No valid data in CSV');
             }
+            
+            return {
+                dates: dates,
+                symbol: 'SPY (S&P 500 ETF)',
+                prices: prices,
+                source: 'Yahoo Finance'
+            };
+            
+        } catch (error) {
+            clearTimeout(timeoutId);
+            throw error; // Just throw, don't retry
         }
-        
-        return {
-            dates: dates,
-            symbol: 'SPY (S&P 500 ETF)',
-            prices: prices,
-            source: 'Alpha Vantage'
-        };
     }
 
     /**
-     * METHOD 3: IEX Cloud API (free sandbox tier)
-     */
-    async fetchIEXCloud(startYear) {
-        // Free sandbox token (for testing)
-        const token = 'Tpk_ee567917a6b640bb8602834c9d30e571';
-        const url = `https://sandbox.iexapis.com/stable/stock/SPY/chart/5y?token=${token}&chartCloseOnly=true`;
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (!Array.isArray(data) || data.length === 0) {
-            throw new Error('Invalid IEX Cloud response');
-        }
-        
-        const dates = [];
-        const prices = [];
-        
-        data.forEach(item => {
-            const dateObj = new Date(item.date);
-            if (dateObj.getFullYear() >= startYear) {
-                dates.push(item.date);
-                prices.push(item.close);
-            }
-        });
-        
-        return {
-            dates: dates,
-            symbol: 'SPY (IEX Cloud)',
-            prices: prices,
-            source: 'IEX Cloud'
-        };
-    }
-
-    /**
-     * SIMPLE simulated data (no recursion, no stack overflow)
+     * SIMPLE simulated data - NO RECURSION, NO COMPLEX LOGIC
      */
     generateSimpleSimulatedData(startYear) {
-        console.log('Generating simple simulated data...');
+        console.log('Creating simulated data...');
         
-        const currentYear = new Date().getFullYear();
-        const years = currentYear - startYear + 1;
-        const totalDays = years * 252; // Trading days
+        // Fixed number of days - no while loops
+        const years = new Date().getFullYear() - startYear + 1;
+        const totalDays = years * 252;
         
         const dates = [];
         const prices = [];
-        let price = 2000; // Start price
         
+        let price = 4000; // Starting price
         let currentDate = new Date(startYear, 0, 1);
-        let daysGenerated = 0;
         
-        while (daysGenerated < totalDays) {
-            // Move to next day
+        // SIMPLE for loop - no recursion
+        for (let i = 0; i < totalDays; i++) {
+            // Add 1 day
             currentDate.setDate(currentDate.getDate() + 1);
             
-            // Skip weekends
-            if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
-                continue;
+            // Only add weekdays
+            const dayOfWeek = currentDate.getDay();
+            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                // Simple price change
+                const change = (Math.random() - 0.5) * 80; // ±40 points
+                price += change;
+                price = Math.max(price, 1000); // Keep reasonable
+                
+                dates.push(currentDate.toISOString().split('T')[0]);
+                prices.push(price);
             }
-            
-            // Simple price movement
-            const changePercent = (Math.random() - 0.48) * 0.04; // ~±2%
-            price = price * (1 + changePercent);
-            price = Math.max(price, 100); // Keep positive
-            
-            dates.push(currentDate.toISOString().split('T')[0]);
-            prices.push(price);
-            daysGenerated++;
-            
-            // Safety check
-            if (daysGenerated > 5000) break;
         }
         
         this.data = {
             dates: dates,
-            symbol: `${this.symbol} (Simulated)`,
+            symbol: 'S&P 500 (Simulated)',
             prices: prices,
             source: 'Simulated'
         };
         
-        console.log(`Generated ${daysGenerated} simulated days`);
+        console.log(`Created ${prices.length} simulated data points`);
         return this.data;
     }
 
     /**
-     * Normalize data (0-1 range)
+     * Normalize data
      */
     normalizeData() {
-        if (!this.data) throw new Error('No data loaded');
-        
-        const prices = this.data.prices;
-        this.minValue = Math.min(...prices);
-        this.maxValue = Math.max(...prices);
-        
-        this.normalizedData = prices.map(p => 
-            (p - this.minValue) / (this.maxValue - this.minValue)
-        );
-        
-        // Calculate returns
-        this.returns = [];
-        for (let i = 1; i < prices.length; i++) {
-            this.returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+        if (!this.data) {
+            throw new Error('Load data first');
         }
         
-        console.log(`Normalized ${prices.length} prices`);
+        const prices = this.data.prices;
+        
+        // Find min/max
+        let min = prices[0];
+        let max = prices[0];
+        
+        for (let i = 1; i < prices.length; i++) {
+            if (prices[i] < min) min = prices[i];
+            if (prices[i] > max) max = prices[i];
+        }
+        
+        this.minValue = min;
+        this.maxValue = max;
+        
+        // Normalize
+        this.normalizedData = new Array(prices.length);
+        const range = max - min;
+        
+        for (let i = 0; i < prices.length; i++) {
+            this.normalizedData[i] = (prices[i] - min) / range;
+        }
+        
+        // Calculate returns
+        this.returns = new Array(prices.length - 1);
+        for (let i = 1; i < prices.length; i++) {
+            this.returns[i-1] = (prices[i] - prices[i-1]) / prices[i-1];
+        }
+        
+        console.log(`Normalized ${prices.length} values`);
     }
 
     /**
      * Prepare dataset
      */
     prepareDataset(seqLen = 60, predDays = 5, trainSplit = 0.8) {
-        if (!this.normalizedData) throw new Error('Normalize data first');
+        if (!this.normalizedData) {
+            throw new Error('Normalize data first');
+        }
+        
+        const totalPossible = this.normalizedData.length - seqLen - predDays;
+        
+        if (totalPossible <= 0) {
+            throw new Error('Not enough data');
+        }
         
         const samples = [];
         const labels = [];
         
-        for (let i = 0; i < this.normalizedData.length - seqLen - predDays; i++) {
-            samples.push(this.normalizedData.slice(i, i + seqLen));
-            
+        // Simple loop - no recursion
+        for (let i = 0; i < totalPossible; i++) {
+            const input = this.normalizedData.slice(i, i + seqLen);
             const futureReturns = this.returns.slice(i + seqLen, i + seqLen + predDays);
-            labels.push(futureReturns.map(r => r > 0 ? 1 : 0));
+            const output = futureReturns.map(r => r > 0 ? 1 : 0);
+            
+            samples.push(input);
+            labels.push(output);
         }
         
         const splitIdx = Math.floor(samples.length * trainSplit);
         
+        // Create tensors
         this.X_train = tf.tensor3d(
             samples.slice(0, splitIdx).map(s => [s]),
             [splitIdx, 1, seqLen]
@@ -296,25 +246,14 @@ export class DataLoader {
             [samples.length - splitIdx, predDays]
         );
         
-        console.log(`Dataset: ${samples.length} samples (${splitIdx} train, ${samples.length - splitIdx} test)`);
+        console.log(`Dataset: ${samples.length} samples`);
     }
 
-    getStatistics() {
-        if (!this.data) return null;
-        
-        const prices = this.data.prices;
-        const returns = this.returns || [];
-        
-        return {
-            symbol: this.data.symbol,
-            source: this.data.source,
-            days: prices.length,
-            currentPrice: prices[prices.length - 1].toFixed(2),
-            dateRange: `${this.data.dates[0]} to ${this.data.dates[this.data.dates.length - 1]}`,
-            returns: {
-                positive: returns.filter(r => r > 0).length,
-                total: returns.length
-            }
-        };
+    dispose() {
+        // Clean up
+        const tensors = [this.X_train, this.y_train, this.X_test, this.y_test];
+        for (const tensor of tensors) {
+            if (tensor) tensor.dispose();
+        }
     }
 }
