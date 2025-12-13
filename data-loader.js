@@ -1,140 +1,147 @@
-// data-loader.js - DIRECT GITHUB CSV LOADER
-export class DataLoader {
+// app.js - MAIN APPLICATION
+import { DataLoader } from './data-loader.js';
+import { GRUModel } from './gru.js';
+
+class StockPredictorApp {
     constructor() {
-        console.log('DataLoader initialized for GitHub CSV');
-        this.data = null;
-        this.normalizedData = null;
-        this.minValue = null;
-        this.maxValue = null;
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-        this.returns = null;
-        this.trainIndices = null;
-        this.testIndices = null;
+        console.log('Starting Stock Predictor App...');
         
-        // ПРЯМАЯ ссылка на ваш CSV файл в GitHub
-        this.csvUrl = 'https://raw.githubusercontent.com/buschevapoly-del/again/main/my_data.csv';
+        this.dataLoader = new DataLoader();
+        this.model = new GRUModel();
+        this.charts = {};
+        this.isProcessing = false;
+        
+        this.init();
     }
 
     /**
-     * Загружает данные напрямую из вашего GitHub CSV
+     * Инициализация приложения
      */
-    async fetchYahooFinanceData() {
-        console.log('Loading data directly from GitHub CSV:', this.csvUrl);
-        
-        try {
-            this.data = await this.loadCSVFromGitHub();
-            console.log('✅ Data loaded successfully:', this.data.prices.length, 'data points');
-            return this.data;
-        } catch (error) {
-            console.error('❌ Error loading from GitHub:', error);
-            throw error;
-        }
+    init() {
+        this.setupCharts();
+        this.setupEventListeners();
+        this.showStatus('Ready to load data from GitHub', 'info');
     }
 
     /**
-     * Загружает и парсит CSV с GitHub
+     * Настройка графиков
      */
-    async loadCSVFromGitHub() {
-        console.log('📥 Fetching CSV from GitHub...');
-        
-        const response = await fetch(this.csvUrl);
-        
-        if (!response.ok) {
-            throw new Error(`GitHub returned ${response.status}: ${response.statusText}`);
-        }
-        
-        const csvText = await response.text();
-        
-        if (!csvText || csvText.trim().length === 0) {
-            throw new Error('CSV file is empty');
-        }
-        
-        // Улучшенный парсинг CSV с учетом кавычек и разных форматов
-        const rows = this.parseCSV(csvText);
-        
-        if (rows.length < 2) {
-            throw new Error('CSV has insufficient data (less than 2 rows)');
-        }
-        
-        const headers = rows[0];
-        console.log('CSV headers found:', headers);
-        console.log('Number of rows:', rows.length);
-        
-        // Автоматически определяем колонки с улучшенной логикой
-        let dateCol = -1;
-        let priceCol = -1;
-        
-        headers.forEach((header, index) => {
-            const lowerHeader = header.toLowerCase().trim();
-            console.log(`Header ${index}: "${header}" -> "${lowerHeader}"`);
-            
-            // Поиск колонки с датой
-            if (dateCol === -1 && (
-                lowerHeader.includes('date') || 
-                lowerHeader.includes('time') ||
-                lowerHeader.includes('day') ||
-                lowerHeader.includes('timestamp')
-            )) {
-                dateCol = index;
-                console.log(`Found date column: ${index} - "${header}"`);
-            }
-            
-            // Поиск колонки с ценой
-            if (priceCol === -1 && (
-                lowerHeader.includes('close') || 
-                lowerHeader.includes('price') || 
-                lowerHeader.includes('value') || 
-                lowerHeader.includes('adj') ||
-                lowerHeader.includes('last') ||
-                lowerHeader.includes('settle') ||
-                lowerHeader.includes('rate') ||
-                lowerHeader.includes('amount')
-            )) {
-                priceCol = index;
-                console.log(`Found price column: ${index} - "${header}"`);
+    setupCharts() {
+        // График обучения
+        const trainingCtx = document.getElementById('trainingChart').getContext('2d');
+        this.charts.training = new Chart(trainingCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Training Loss',
+                    data: [],
+                    borderColor: '#ff007a',
+                    backgroundColor: 'rgba(255, 0, 122, 0.1)',
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
             }
         });
-        
-        // Fallback логика
-        if (dateCol === -1) {
-            // Пробуем найти колонку с датой по формату (YYYY-MM-DD или подобное)
-            for (let i = 0; i < headers.length; i++) {
-                if (headers[i] && this.looksLikeDateColumn(rows, i)) {
-                    dateCol = i;
-                    console.log(`Fallback: Using column ${i} as date (looks like date)`);
-                    break;
+
+        // Исторический график
+        const historyCtx = document.getElementById('historyChart').getContext('2d');
+        this.charts.history = new Chart(historyCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'S&P 500 Price',
+                    data: [],
+                    borderColor: '#ff007a',
+                    backgroundColor: 'rgba(255, 0, 122, 0.1)',
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+
+        // График предсказаний
+        const predictionCtx = document.getElementById('predictionChart').getContext('2d');
+        this.charts.prediction = new Chart(predictionCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5'],
+                datasets: [{
+                    label: 'Probability',
+                    data: [0, 0, 0, 0, 0],
+                    backgroundColor: '#ff007a'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 1
+                    }
                 }
             }
-            // Если всё еще не нашли, используем первую колонку
-            if (dateCol === -1) {
-                dateCol = 0;
-                console.log(`Fallback: Using first column (index 0) as date`);
-            }
-        }
+        });
+    }
+
+    /**
+     * Настройка обработчиков событий
+     */
+    setupEventListeners() {
+        document.getElementById('refreshDataBtn').addEventListener('click', () => this.loadData());
+        document.getElementById('preprocessBtn').addEventListener('click', () => this.preprocessData());
+        document.getElementById('trainBtn').addEventListener('click', () => this.trainModel());
+        document.getElementById('predictBtn').addEventListener('click', () => this.makePredictions());
+    }
+
+    /**
+     * Загружает данные из GitHub
+     */
+    async loadData() {
+        if (this.isProcessing) return;
         
-        if (priceCol === -1) {
-            // Пробуем найти числовую колонку
-            for (let i = 0; i < headers.length; i++) {
-                if (i !== dateCol && this.looksLikeNumericColumn(rows, i)) {
-                    priceCol = i;
-                    console.log(`Fallback: Using column ${i} as price (looks numeric)`);
-                    break;
-                }
-            }
-            // Если всё еще не нашли, используем вторую колонку
-            if (priceCol === -1) {
-                priceCol = dateCol === 0 ? 1 : 0;
-                console.log(`Fallback: Using column ${priceCol} as price`);
-            }
-        }
+        this.isProcessing = true;
+        this.showLoader('refreshLoader', true);
+        this.showStatus('Loading data from GitHub...', 'info');
+        this.setProgress(0, 'Starting');
         
-        console.log(`Using date column: ${dateCol}, price column: ${priceCol}`);
-        
-        const dates = [];
-        const prices = [];
-        let skippedRows = 0;
-        
-        for (let i = 1; i
+        try {
+            this.setProgress(30, 'Downloading CSV');
+            await this.dataLoader.fetchYahooFinanceData();
+            
+            this.setProgress(70, 'Processing data');
+            const stats = this.dataLoader.getStatistics();
+            
+            // Обновляем информацию о данных
+            const fileInfo = document.getElementById('fileInfo');
+            fileInfo.classList.add('active');
+            fileInfo.innerHTML = `
+                <div style="text-align: center;">
+                    <h4 style="color: #ff007a;">${stats.symbol}</h4>
+                    <p>${stats.dateRange}</p>
+                </div>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <strong>Data Points</strong>
+                        <div>${stats.numDays}</div>
+                    </div>
+                    <div class="info-item">
+                        <strong>Current Price</strong>
+                        <div>${stats.currentPrice}</div>
+                    </div>
+                    <div class="info-item">
+                        <strong>Price Range</strong>
+                        <div>${stats.priceRange}</div>
+                    </div>
+                    <div class="info-item">
+                        <strong>Avg Daily Return</strong>
+                        <div>${stats.returns.avgDaily}</div>
+                    </
