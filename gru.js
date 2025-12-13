@@ -1,7 +1,7 @@
 // gru.js
 export class GRUModel {
     constructor(sequenceLength = 60, numFeatures = 1, predictionDays = 5) {
-        console.log('GRUModel initialized');
+        console.log('🧠 GRUModel initialized');
         this.sequenceLength = sequenceLength;
         this.numFeatures = numFeatures;
         this.predictionDays = predictionDays;
@@ -23,9 +23,8 @@ export class GRUModel {
      * Build and compile the GRU model
      */
     buildModel() {
-        console.log('Building GRU model...');
+        console.log('🏗️ Building GRU model...');
         
-        // Clear existing model
         if (this.model) {
             this.model.dispose();
         }
@@ -50,7 +49,7 @@ export class GRUModel {
                 activation: 'relu'
             }));
             
-            // Output layer
+            // Output layer (5 days prediction)
             this.model.add(tf.layers.dense({
                 units: this.predictionDays,
                 activation: 'sigmoid'
@@ -68,12 +67,12 @@ export class GRUModel {
             
             // Print model summary
             const totalParams = this.model.countParams();
-            console.log('Total parameters:', totalParams.toLocaleString());
+            console.log('📊 Total parameters:', totalParams.toLocaleString());
             
             return this.model;
             
         } catch (error) {
-            console.error('Error building model:', error);
+            console.error('❌ Error building model:', error);
             throw error;
         }
     }
@@ -82,14 +81,14 @@ export class GRUModel {
      * Train the model
      */
     async train(X_train, y_train, onEpochEnd = null) {
-        console.log('Starting model training...');
+        console.log('🎯 Starting model training...');
         
         if (!this.model) {
             throw new Error('Model not built. Call buildModel first.');
         }
         
-        console.log('Training data shape:', X_train.shape);
-        console.log('Training labels shape:', y_train.shape);
+        console.log('📐 Training data shape:', X_train.shape);
+        console.log('📐 Training labels shape:', y_train.shape);
         
         this.trainingLogs = [];
         
@@ -102,7 +101,7 @@ export class GRUModel {
                 verbose: 0,
                 callbacks: {
                     onEpochEnd: async (epoch, logs) => {
-                        console.log(`Epoch ${epoch + 1}/${this.config.epochs} - loss: ${logs.loss.toFixed(4)}, val_loss: ${logs.val_loss ? logs.val_loss.toFixed(4) : 'N/A'}`);
+                        console.log(`📈 Epoch ${epoch + 1}/${this.config.epochs} - loss: ${logs.loss?.toFixed(4) || 'N/A'}, val_loss: ${logs.val_loss ? logs.val_loss.toFixed(4) : 'N/A'}`);
                         
                         this.trainingLogs.push({
                             epoch: epoch + 1,
@@ -116,7 +115,6 @@ export class GRUModel {
                             onEpochEnd(epoch + 1, logs, this.config.epochs);
                         }
                         
-                        // Force garbage collection
                         await tf.nextFrame();
                     }
                 }
@@ -128,7 +126,7 @@ export class GRUModel {
             return this.history;
             
         } catch (error) {
-            console.error('Error during training:', error);
+            console.error('❌ Error during training:', error);
             throw error;
         }
     }
@@ -137,7 +135,7 @@ export class GRUModel {
      * Evaluate model on test data
      */
     evaluate(X_test, y_test) {
-        console.log('Evaluating model...');
+        console.log('📊 Evaluating model...');
         
         if (!this.model || !this.isTrained) {
             throw new Error('Model not trained. Call train first.');
@@ -149,8 +147,8 @@ export class GRUModel {
                 verbose: 0
             });
             
-            const loss = results[0].dataSync()[0];
-            const accuracy = results[1].dataSync()[0];
+            const loss = results[0]?.dataSync()[0] || 0;
+            const accuracy = results[1]?.dataSync()[0] || 0;
             
             // Calculate additional metrics
             const predictions = this.model.predict(X_test);
@@ -175,7 +173,12 @@ export class GRUModel {
             
             // Clean up
             predictions.dispose();
-            results.forEach(r => r.dispose());
+            
+            if (Array.isArray(results)) {
+                results.forEach(r => {
+                    if (r && r.dispose) r.dispose();
+                });
+            }
             
             const metrics = {
                 loss: parseFloat(loss.toFixed(4)),
@@ -189,7 +192,7 @@ export class GRUModel {
             return metrics;
             
         } catch (error) {
-            console.error('Error during evaluation:', error);
+            console.error('❌ Error during evaluation:', error);
             return {
                 loss: 0,
                 accuracy: 0,
@@ -204,7 +207,7 @@ export class GRUModel {
      * Make predictions
      */
     predict(input) {
-        console.log('Making predictions...');
+        console.log('🔮 Making predictions...');
         
         if (!this.model || !this.isTrained) {
             throw new Error('Model not trained. Call train first.');
@@ -233,7 +236,7 @@ export class GRUModel {
             return predictions;
             
         } catch (error) {
-            console.error('Error during prediction:', error);
+            console.error('❌ Error during prediction:', error);
             // Return default predictions
             return Array.from({length: this.predictionDays}, (_, i) => ({
                 day: i + 1,
