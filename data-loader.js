@@ -1,259 +1,413 @@
-// data-loader.js - NO RECURSION VERSION
-export class DataLoader {
+// data-loader.js
+/**
+ * Data Loader Module for S&P 500 Index
+ * Handles data loading from multiple sources: demo data, Yahoo Finance, or file upload
+ */
+
+class DataLoader {
     constructor() {
         this.data = null;
-        this.normalizedData = null;
-        this.minValue = null;
-        this.maxValue = null;
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-        this.returns = null;
-        this.symbol = '^GSPC';
-        this.fetchAttempted = false; // Prevent retry loops
+        this.featureColumns = ['Close'];
+        this.targetColumn = 'Close';
+        this.sequenceLength = 60;
+        this.forecastDays = 5;
+        this.trainTestSplit = 0.8;
+        this.normalizationParams = {};
     }
 
     /**
-     * Fetch S&P 500 data - SIMPLE VERSION, NO RECURSION
+     * Generate realistic demo data for S&P 500
+     * @param {number} days - Number of days to generate
+     * @returns {Promise<Array>} - Generated data
      */
-    async fetchYahooFinanceData(startYear = 2020) {
-        console.log('Starting data fetch...');
+    async generateDemoData(days = 1000) {
+        console.log(`Generating ${days} days of demo data...`);
         
-        // ONLY try ONE method to avoid any recursion
-        try {
-            const data = await this.fetchSimpleYahooData(startYear);
-            this.data = data;
-            console.log(`✅ Got ${data.prices.length} days of data`);
-            return data;
-        } catch (error) {
-            console.log('API failed, using simulated data:', error.message);
-            // Use simulated data immediately - NO RETRY, NO RECURSION
-            return this.generateSimpleSimulatedData(startYear);
-        }
-    }
-
-    /**
-     * SIMPLE Yahoo Finance fetch - NO RETRY LOGIC
-     */
-    async fetchSimpleYahooData(startYear) {
-        console.log('Fetching from Yahoo Finance...');
+        // Start from a realistic price
+        let price = 4000;
+        const volatility = 0.012;
+        const drift = 0.0001; // Slight upward trend
         
-        // Use current year - 2 years to get manageable amount of data
-        const actualStartYear = Math.max(startYear, new Date().getFullYear() - 2);
-        const startDate = new Date(actualStartYear, 0, 1);
-        const endDate = new Date();
+        const rows = [];
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
         
-        const period1 = Math.floor(startDate.getTime() / 1000);
-        const period2 = Math.floor(endDate.getTime() / 1000);
-        
-        // Use SPY instead of ^GSPC (more reliable)
-        const symbol = 'SPY';
-        const url = `https://query1.finance.yahoo.com/v7/finance/download/${symbol}?period1=${period1}&period2=${period2}&interval=1d&events=history`;
-        
-        console.log(`URL: ${url}`);
-        
-        // Use fetch with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
-        try {
-            const response = await fetch(url, {
-                signal: controller.signal,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0'
-                }
+        for (let i = 0; i < days; i++) {
+            const currentDate = new Date(startDate);
+            currentDate.setDate(startDate.getDate() + i);
+            
+            // Skip weekends for realistic trading days
+            if (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+                continue;
+            }
+            
+            // Generate realistic price movement
+            const randomFactor = (Math.random() - 0.5) * 2;
+            const change = price * volatility * randomFactor + price * drift;
+            price += change;
+            
+            // Add some noise
+            price += (Math.random() - 0.5) * price * 0.001;
+            
+            // Ensure price doesn't go below 0
+            price = Math.max(price, 100);
+            
+            // Create OHLC data
+            const open = price;
+            const close = price + (Math.random() - 0.5) * price * 0.005;
+            const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+            const low = Math.min(open, close) * (1 - Math.random() * 0.008);
+            const volume = Math.floor(Math.random() * 1000000) + 500000;
+            
+            rows.push({
+                Date: currentDate.toISOString().split('T')[0],
+                Open: parseFloat(open.toFixed(2)),
+                High: parseFloat(high.toFixed(2)),
+                Low: parseFloat(low.toFixed(2)),
+                Close: parseFloat(close.toFixed(2)),
+                Volume: volume
             });
             
-            clearTimeout(timeoutId);
+            price = close; // Use close as next day's starting point
+        }
+        
+        this.data = rows;
+        this.featureColumns = ['Close']; // Use Close as primary feature
+        
+        console.log(`Generated ${rows.length} days of demo data`);
+        console.log('First row:', rows[0]);
+        console.log('Last row:', rows[rows.length - 1]);
+        
+        return rows;
+    }
+
+    /**
+     * Fetch data from Yahoo Finance using public API
+     * @param {string} ticker - Stock ticker symbol
+     * @param {string} period - Time period
+     * @param {string} interval - Data interval
+     * @returns {Promise<Array>} - Fetched data
+     */
+    async fetchYahooFinanceData(ticker = '^GSPC', period = '1y', interval = '1d') {
+        console.log(`Fetching data for ${ticker} from Yahoo Finance...`);
+        
+        try {
+            // Using Yahoo Finance public API through CORS proxy
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${period}&interval=${interval}`;
+            
+            // Use CORS proxy to avoid CORS issues
+            const proxyUrl = 'https://api.allorigins.win/raw?url=';
+            const response = await fetch(proxyUrl + encodeURIComponent(url));
             
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            const csv = await response.text();
+            const data = await response.json();
             
-            if (!csv || csv.length < 100) {
-                throw new Error('Invalid CSV response');
+            if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
+                throw new Error('No data returned from Yahoo Finance');
             }
             
-            const rows = csv.trim().split('\n');
-            const dates = [];
-            const prices = [];
+            const result = data.chart.result[0];
+            const timestamps = result.timestamp;
+            const quotes = result.indicators.quote[0];
             
-            // Skip header row
-            for (let i = 1; i < rows.length; i++) {
-                const cols = rows[i].split(',');
-                if (cols.length >= 6) {
-                    const date = cols[0];
-                    const close = parseFloat(cols[4]);
-                    
-                    if (!isNaN(close) && close > 0) {
-                        dates.push(date);
-                        prices.push(close);
-                    }
-                }
+            if (!timestamps || timestamps.length === 0) {
+                throw new Error('No timestamp data available');
             }
             
-            if (dates.length === 0) {
-                throw new Error('No valid data in CSV');
+            const rows = [];
+            
+            for (let i = 0; i < timestamps.length; i++) {
+                const date = new Date(timestamps[i] * 1000);
+                
+                // Skip if any price data is null
+                if (!quotes.close || quotes.close[i] === null) continue;
+                
+                rows.push({
+                    Date: date.toISOString().split('T')[0],
+                    Open: quotes.open[i] || quotes.close[i],
+                    High: quotes.high[i] || quotes.close[i],
+                    Low: quotes.low[i] || quotes.close[i],
+                    Close: quotes.close[i],
+                    Volume: quotes.volume[i] || 0
+                });
             }
             
-            return {
-                dates: dates,
-                symbol: 'SPY (S&P 500 ETF)',
-                prices: prices,
-                source: 'Yahoo Finance'
-            };
+            if (rows.length === 0) {
+                throw new Error('No valid price data found');
+            }
+            
+            this.data = rows;
+            this.featureColumns = ['Close'];
+            
+            console.log(`Fetched ${rows.length} days of data from Yahoo Finance`);
+            console.log('First row:', rows[0]);
+            console.log('Last row:', rows[rows.length - 1]);
+            
+            return rows;
             
         } catch (error) {
-            clearTimeout(timeoutId);
-            throw error; // Just throw, don't retry
+            console.error('Error fetching from Yahoo Finance:', error);
+            
+            // Fallback to demo data if Yahoo Finance fails
+            console.log('Falling back to demo data...');
+            return await this.generateDemoData(365);
         }
     }
 
     /**
-     * SIMPLE simulated data - NO RECURSION, NO COMPLEX LOGIC
+     * Load and parse CSV file
      */
-    generateSimpleSimulatedData(startYear) {
-        console.log('Creating simulated data...');
-        
-        // Fixed number of days - no while loops
-        const years = new Date().getFullYear() - startYear + 1;
-        const totalDays = years * 252;
-        
-        const dates = [];
-        const prices = [];
-        
-        let price = 4000; // Starting price
-        let currentDate = new Date(startYear, 0, 1);
-        
-        // SIMPLE for loop - no recursion
-        for (let i = 0; i < totalDays; i++) {
-            // Add 1 day
-            currentDate.setDate(currentDate.getDate() + 1);
+    async loadCSV(file) {
+        return new Promise((resolve, reject) => {
+            if (!file) {
+                reject(new Error('No file provided'));
+                return;
+            }
+
+            const reader = new FileReader();
             
-            // Only add weekdays
-            const dayOfWeek = currentDate.getDay();
-            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-                // Simple price change
-                const change = (Math.random() - 0.5) * 80; // ±40 points
-                price += change;
-                price = Math.max(price, 1000); // Keep reasonable
-                
-                dates.push(currentDate.toISOString().split('T')[0]);
-                prices.push(price);
+            reader.onload = (e) => {
+                try {
+                    const csvText = e.target.result;
+                    const rows = this.parseSimpleCSV(csvText);
+                    
+                    if (rows.length === 0) {
+                        reject(new Error('No valid data found in CSV'));
+                        return;
+                    }
+                    
+                    this.data = rows;
+                    this.featureColumns = ['Close'];
+                    
+                    console.log(`Loaded ${rows.length} rows from CSV`);
+                    resolve(rows);
+                    
+                } catch (error) {
+                    console.error('CSV parsing error:', error);
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * Simple CSV parser - handles single column of prices
+     */
+    parseSimpleCSV(csvText) {
+        const rows = [];
+        const lines = csvText.split('\n').filter(line => line.trim() !== '');
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            // Try to extract a number
+            const match = line.match(/(\d+\.?\d*)/);
+            if (match) {
+                const value = parseFloat(match[1]);
+                if (!isNaN(value) && value > 0) {
+                    rows.push({
+                        Date: `Day ${rows.length + 1}`,
+                        Close: value
+                    });
+                }
             }
         }
         
-        this.data = {
-            dates: dates,
-            symbol: 'S&P 500 (Simulated)',
-            prices: prices,
-            source: 'Simulated'
+        return rows;
+    }
+
+    /**
+     * Preprocess data for model training
+     */
+    preprocessData() {
+        console.log('=== PREPROCESSING DATA ===');
+        
+        if (!this.data || this.data.length === 0) {
+            throw new Error('No data loaded. Please load data first.');
+        }
+
+        console.log(`Preprocessing ${this.data.length} data points...`);
+
+        // Extract Close prices
+        const closePrices = this.data.map(row => {
+            const val = row[this.targetColumn];
+            return typeof val === 'number' && isFinite(val) ? val : 0;
+        }).filter(val => val > 0);
+
+        if (closePrices.length < this.sequenceLength + this.forecastDays) {
+            throw new Error(`Need at least ${this.sequenceLength + this.forecastDays} data points`);
+        }
+
+        console.log(`Valid close prices: ${closePrices.length}`);
+        console.log('First 5 prices:', closePrices.slice(0, 5));
+
+        // Normalize data
+        const normalizedPrices = this.normalizeArray(closePrices, 'target');
+
+        // Create sequences (using only close prices as features)
+        return this.createSequences([normalizedPrices], normalizedPrices);
+    }
+
+    /**
+     * Normalize an array
+     */
+    normalizeArray(array, name) {
+        const validArray = array.filter(val => isFinite(val));
+        if (validArray.length === 0) {
+            throw new Error(`No valid values in array: ${name}`);
+        }
+        
+        const min = Math.min(...validArray);
+        const max = Math.max(...validArray);
+        const range = max - min || 1;
+        
+        this.normalizationParams[name] = { min, max, range };
+        
+        console.log(`${name}: min=${min.toFixed(2)}, max=${max.toFixed(2)}, range=${range.toFixed(2)}`);
+        
+        return array.map(val => {
+            if (!isFinite(val)) return 0;
+            return (val - min) / range;
+        });
+    }
+
+    /**
+     * Denormalize an array
+     */
+    denormalizeArray(normalizedArray, name) {
+        const params = this.normalizationParams[name];
+        if (!params) {
+            throw new Error(`No normalization params for ${name}`);
+        }
+        
+        return normalizedArray.map(val => val * params.range + params.min);
+    }
+
+    /**
+     * Create sequences for training
+     */
+    createSequences(normalizedFeatures, normalizedTarget) {
+        const totalSamples = normalizedTarget.length - this.sequenceLength - this.forecastDays + 1;
+        
+        if (totalSamples <= 0) {
+            throw new Error(`Need more data. Required: ${this.sequenceLength + this.forecastDays}, Have: ${normalizedTarget.length}`);
+        }
+
+        console.log(`Creating ${totalSamples} sequences...`);
+
+        const sequences = [];
+        const targets = [];
+        
+        for (let i = 0; i < totalSamples; i++) {
+            const sequence = [];
+            for (let j = 0; j < this.sequenceLength; j++) {
+                const timeStep = normalizedFeatures.map(feature => feature[i + j]);
+                sequence.push(timeStep);
+            }
+            sequences.push(sequence);
+            
+            const nextValues = normalizedTarget.slice(
+                i + this.sequenceLength, 
+                i + this.sequenceLength + this.forecastDays
+            );
+            targets.push(nextValues);
+        }
+
+        // Split into train/test
+        const splitIndex = Math.floor(sequences.length * this.trainTestSplit);
+        
+        const X_train = sequences.slice(0, splitIndex);
+        const y_train = targets.slice(0, splitIndex);
+        const X_test = sequences.slice(splitIndex);
+        const y_test = targets.slice(splitIndex);
+
+        console.log(`Training samples: ${X_train.length}`);
+        console.log(`Testing samples: ${X_test.length}`);
+
+        return {
+            X_train: tf.tensor3d(X_train),
+            y_train: tf.tensor2d(y_train),
+            X_test: tf.tensor3d(X_test),
+            y_test: tf.tensor2d(y_test),
+            featureNames: this.featureColumns,
+            sequenceLength: this.sequenceLength,
+            forecastDays: this.forecastDays
+        };
+    }
+
+    /**
+     * Get the latest window for prediction
+     */
+    getLatestWindow() {
+        if (!this.data || this.data.length < this.sequenceLength) {
+            throw new Error(`Need at least ${this.sequenceLength} days of data`);
+        }
+
+        const closePrices = this.data.map(row => row[this.targetColumn]);
+        const latestPrices = closePrices.slice(-this.sequenceLength);
+
+        const params = this.normalizationParams['target'];
+        if (!params) {
+            throw new Error('No normalization parameters found');
+        }
+
+        const normalizedLatest = latestPrices.map(val => (val - params.min) / params.range);
+        
+        // Reshape to [1, sequenceLength, 1]
+        const sequence = normalizedLatest.map(price => [price]);
+        
+        return tf.tensor3d([sequence]);
+    }
+
+    /**
+     * Get data statistics
+     */
+    getStats() {
+        if (!this.data || this.data.length === 0) {
+            return null;
+        }
+
+        const closePrices = this.data.map(row => row[this.targetColumn]);
+        const returns = [];
+        
+        for (let i = 1; i < closePrices.length; i++) {
+            const ret = (closePrices[i] - closePrices[i-1]) / closePrices[i-1];
+            if (isFinite(ret)) {
+                returns.push(ret);
+            }
+        }
+
+        const stats = {
+            totalDays: this.data.length,
+            minPrice: Math.min(...closePrices).toFixed(2),
+            maxPrice: Math.max(...closePrices).toFixed(2),
+            lastPrice: closePrices[closePrices.length - 1].toFixed(2),
+            dataSource: this.data[0].Date.includes('Day') ? 'Demo Data' : 'Yahoo Finance'
         };
         
-        console.log(`Created ${prices.length} simulated data points`);
-        return this.data;
+        if (returns.length > 0) {
+            stats.meanReturn = (returns.reduce((a, b) => a + b, 0) / returns.length * 100).toFixed(3);
+            stats.volatility = (Math.sqrt(returns.reduce((sq, n) => sq + n * n, 0) / returns.length) * 100).toFixed(3);
+        }
+
+        console.log('Data statistics:', stats);
+        return stats;
     }
 
     /**
-     * Normalize data
+     * Clean up resources
      */
-    normalizeData() {
-        if (!this.data) {
-            throw new Error('Load data first');
-        }
-        
-        const prices = this.data.prices;
-        
-        // Find min/max
-        let min = prices[0];
-        let max = prices[0];
-        
-        for (let i = 1; i < prices.length; i++) {
-            if (prices[i] < min) min = prices[i];
-            if (prices[i] > max) max = prices[i];
-        }
-        
-        this.minValue = min;
-        this.maxValue = max;
-        
-        // Normalize
-        this.normalizedData = new Array(prices.length);
-        const range = max - min;
-        
-        for (let i = 0; i < prices.length; i++) {
-            this.normalizedData[i] = (prices[i] - min) / range;
-        }
-        
-        // Calculate returns
-        this.returns = new Array(prices.length - 1);
-        for (let i = 1; i < prices.length; i++) {
-            this.returns[i-1] = (prices[i] - prices[i-1]) / prices[i-1];
-        }
-        
-        console.log(`Normalized ${prices.length} values`);
-    }
-
-    /**
-     * Prepare dataset
-     */
-    prepareDataset(seqLen = 60, predDays = 5, trainSplit = 0.8) {
-        if (!this.normalizedData) {
-            throw new Error('Normalize data first');
-        }
-        
-        const totalPossible = this.normalizedData.length - seqLen - predDays;
-        
-        if (totalPossible <= 0) {
-            throw new Error('Not enough data');
-        }
-        
-        const samples = [];
-        const labels = [];
-        
-        // Simple loop - no recursion
-        for (let i = 0; i < totalPossible; i++) {
-            const input = this.normalizedData.slice(i, i + seqLen);
-            const futureReturns = this.returns.slice(i + seqLen, i + seqLen + predDays);
-            const output = futureReturns.map(r => r > 0 ? 1 : 0);
-            
-            samples.push(input);
-            labels.push(output);
-        }
-        
-        const splitIdx = Math.floor(samples.length * trainSplit);
-        
-        // Create tensors
-        this.X_train = tf.tensor3d(
-            samples.slice(0, splitIdx).map(s => [s]),
-            [splitIdx, 1, seqLen]
-        );
-        
-        this.y_train = tf.tensor2d(
-            labels.slice(0, splitIdx),
-            [splitIdx, predDays]
-        );
-        
-        this.X_test = tf.tensor3d(
-            samples.slice(splitIdx).map(s => [s]),
-            [samples.length - splitIdx, 1, seqLen]
-        );
-        
-        this.y_test = tf.tensor2d(
-            labels.slice(splitIdx),
-            [samples.length - splitIdx, predDays]
-        );
-        
-        console.log(`Dataset: ${samples.length} samples`);
-    }
-
     dispose() {
-        // Clean up
-        const tensors = [this.X_train, this.y_train, this.X_test, this.y_test];
-        for (const tensor of tensors) {
-            if (tensor) tensor.dispose();
-        }
+        this.data = null;
+        this.normalizationParams = {};
     }
 }
+
+// Export singleton instance
+export const dataLoader = new DataLoader();
