@@ -488,32 +488,6 @@
         .demo-note strong {
             color: var(--warning);
         }
-        
-        .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            display: none;
-        }
-        
-        .loading-overlay.active {
-            display: flex;
-        }
-        
-        .loading-overlay .loader {
-            width: 60px;
-            height: 60px;
-            border-width: 4px;
-            margin-bottom: 20px;
-        }
     </style>
 </head>
 <body>
@@ -524,13 +498,13 @@
             <div class="badge-container">
                 <span class="tech-badge">TensorFlow.js</span>
                 <span class="tech-badge">GRU Neural Network</span>
+                <span class="tech-badge">GitHub CSV Data</span>
                 <span class="tech-badge">100% Client-side</span>
-                <span class="tech-badge">GitHub Pages Ready</span>
             </div>
         </header>
         
         <div class="demo-note">
-            <strong>Note:</strong> This demo uses simulated S&P 500 data. All processing happens in your browser.
+            <strong>Note:</strong> This demo loads real S&P 500 data from your GitHub CSV file. All processing happens in your browser.
         </div>
         
         <div class="dashboard">
@@ -543,18 +517,18 @@
                 <div class="data-section">
                     <div class="icon">📊</div>
                     <h3>S&P 500 Data Loader</h3>
-                    <p>Loads simulated S&P 500 data for model training</p>
+                    <p>Loads real S&P 500 data from your GitHub CSV file</p>
                     <button class="btn btn-secondary" id="refreshDataBtn">
                         <span class="loader" style="display: none;" id="refreshLoader"></span>
                         <span class="icon">🔄</span>
-                        <span>Load Data</span>
+                        <span>Load Data from GitHub</span>
                     </button>
                 </div>
                 
                 <div class="file-info" id="fileInfo">
                     <div style="text-align: center; padding: 20px;">
                         <div class="loader"></div>
-                        <p>Loading S&P 500 data...</p>
+                        <p>Loading S&P 500 data from GitHub...</p>
                     </div>
                 </div>
                 
@@ -579,7 +553,7 @@
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
                     </div>
-                    <div id="progressText">Click "Load Data" to begin</div>
+                    <div id="progressText">Click "Load Data from GitHub" to begin</div>
                 </div>
                 
                 <div id="statusContainer"></div>
@@ -649,7 +623,7 @@
                     </div>
                     <div class="prediction-day">
                         <div class="day-label">Day 4</div>
-                        <div class="prediction-value">-</div>
+                        <div class="prediction-value">1</div>
                         <div class="prediction-confidence">Confidence: -</div>
                         <div style="font-size: 0.8rem; margin-top: 8px; opacity: 0.7;">Probability: -</div>
                     </div>
@@ -667,23 +641,17 @@
         </div>
         
         <footer>
-            <p>🚀 <span class="highlight">Browser-based Machine Learning Demo</span> | Built with TensorFlow.js | Deployable on GitHub Pages</p>
+            <p>🚀 <span>Browser-based Machine Learning Demo</span> | Built with TensorFlow.js | Uses real data from GitHub</p>
             <p style="margin-top: 10px; font-size: 0.85rem; opacity: 0.6;">
                 Note: Predictions are for demonstration purposes only. Not financial advice.
                 All computations run 100% in your browser using TensorFlow.js.
             </p>
             <div class="footer-links">
                 <a href="https://www.tensorflow.org/js" target="_blank">TensorFlow.js</a>
-                <a href="https://github.com" target="_blank">GitHub</a>
+                <a href="https://github.com/buschevapoly-del/again/blob/main/my_data.csv" target="_blank">GitHub Data Source</a>
                 <a href="https://chartjs.org" target="_blank">Chart.js</a>
             </div>
         </footer>
-    </div>
-
-    <!-- Loading overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="loader"></div>
-        <div id="loadingText">Loading application...</div>
     </div>
 
     <!-- Module imports -->
