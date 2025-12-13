@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S&P 500 Stock Predictor | Browser ML Demo</title>
+    <title>S&P 500 Stock Predictor | Real GitHub Data</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
@@ -103,10 +103,6 @@
             border-bottom: 2px solid rgba(255, 0, 122, 0.3);
         }
         
-        .card-title i {
-            font-size: 1.6rem;
-        }
-        
         .data-section {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 10px;
@@ -114,13 +110,6 @@
             margin-bottom: 20px;
             text-align: center;
             border: 2px solid rgba(255, 0, 122, 0.2);
-        }
-        
-        .data-section i {
-            font-size: 3rem;
-            color: var(--rose);
-            margin-bottom: 15px;
-            display: block;
         }
         
         .btn {
@@ -144,10 +133,6 @@
             box-shadow: 0 6px 20px rgba(255, 0, 122, 0.4);
         }
         
-        .btn:active {
-            transform: translateY(0);
-        }
-        
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -158,10 +143,6 @@
         .btn-secondary {
             background: linear-gradient(135deg, var(--info) 0%, #0099ff 100%);
             box-shadow: 0 4px 15px rgba(0, 170, 255, 0.3);
-        }
-        
-        .btn-secondary:hover {
-            box-shadow: 0 6px 20px rgba(0, 170, 255, 0.4);
         }
         
         .controls {
@@ -186,7 +167,6 @@
             border-radius: 6px;
             overflow: hidden;
             margin-bottom: 10px;
-            box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
         }
         
         .progress-fill {
@@ -209,13 +189,6 @@
             padding: 20px;
             border-radius: 10px;
             text-align: center;
-            border: 1px solid rgba(255,255,255,0.1);
-            transition: all 0.3s ease;
-        }
-        
-        .metric:hover {
-            border-color: var(--rose);
-            transform: translateY(-3px);
         }
         
         .metric-value {
@@ -223,14 +196,11 @@
             font-weight: bold;
             color: var(--rose);
             margin-bottom: 5px;
-            text-shadow: 0 2px 4px rgba(255, 0, 122, 0.3);
         }
         
         .metric-label {
             font-size: 0.9rem;
             opacity: 0.8;
-            text-transform: uppercase;
-            letter-spacing: 1px;
         }
         
         .chart-container {
@@ -262,38 +232,17 @@
             border-radius: 12px;
             text-align: center;
             transition: all 0.3s ease;
-            border: 2px solid transparent;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .prediction-day::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--rose);
-            opacity: 0;
-            transition: opacity 0.3s ease;
         }
         
         .prediction-day:hover {
             transform: translateY(-5px);
             background: rgba(255, 0, 122, 0.1);
-            border-color: rgba(255, 0, 122, 0.3);
-        }
-        
-        .prediction-day:hover::before {
-            opacity: 1;
         }
         
         .day-label {
             font-size: 1.1rem;
             margin-bottom: 10px;
             opacity: 0.8;
-            font-weight: 500;
         }
         
         .prediction-value {
@@ -306,10 +255,6 @@
         .prediction-confidence {
             font-size: 0.85rem;
             opacity: 0.8;
-            background: rgba(255,255,255,0.1);
-            padding: 4px 8px;
-            border-radius: 12px;
-            display: inline-block;
         }
         
         .up {
@@ -364,33 +309,6 @@
             display: block;
         }
         
-        footer {
-            text-align: center;
-            padding: 30px 20px;
-            margin-top: 50px;
-            opacity: 0.7;
-            font-size: 0.9rem;
-            border-top: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        .footer-links {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin-top: 15px;
-        }
-        
-        .footer-links a {
-            color: var(--rose);
-            text-decoration: none;
-            transition: opacity 0.3s ease;
-        }
-        
-        .footer-links a:hover {
-            opacity: 0.8;
-            text-decoration: underline;
-        }
-        
         .loader {
             border: 3px solid rgba(255,255,255,0.1);
             border-top: 3px solid var(--rose);
@@ -399,7 +317,6 @@
             height: 24px;
             animation: spin 1s linear infinite;
             display: inline-block;
-            vertical-align: middle;
             margin-right: 10px;
         }
         
@@ -408,30 +325,16 @@
             100% { transform: rotate(360deg); }
         }
         
-        .icon {
-            font-style: normal;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 40px;
-            height: 40px;
-            background: rgba(255, 0, 122, 0.2);
-            border-radius: 50%;
-            margin-right: 10px;
-        }
-        
         .file-info {
             margin-top: 20px;
             padding: 15px;
             background: rgba(255,255,255,0.05);
             border-radius: 10px;
-            border: 1px solid rgba(255, 0, 122, 0.2);
             display: none;
         }
         
         .file-info.active {
             display: block;
-            animation: slideIn 0.3s ease;
         }
         
         .info-grid {
@@ -445,48 +348,16 @@
             background: rgba(255,255,255,0.05);
             padding: 12px;
             border-radius: 8px;
-            border-left: 3px solid var(--rose);
         }
         
-        .info-item strong {
+        .github-link {
             color: var(--rose);
-            display: block;
-            margin-bottom: 5px;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            text-decoration: none;
+            font-weight: bold;
         }
         
-        .tech-badge {
-            display: inline-block;
-            background: rgba(255, 0, 122, 0.2);
-            color: var(--rose);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            margin: 2px;
-            border: 1px solid rgba(255, 0, 122, 0.3);
-        }
-        
-        .badge-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 15px;
-            justify-content: center;
-        }
-        
-        .demo-note {
-            background: rgba(255, 204, 0, 0.1);
-            border-left: 4px solid var(--warning);
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            font-size: 0.9rem;
-        }
-        
-        .demo-note strong {
-            color: var(--warning);
+        .github-link:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
@@ -494,58 +365,46 @@
     <div class="container">
         <header>
             <h1>📈 S&P 500 Stock Predictor</h1>
-            <p class="subtitle">Browser-based GRU machine learning model for 5-day ahead return predictions using TensorFlow.js</p>
-            <div class="badge-container">
-                <span class="tech-badge">TensorFlow.js</span>
-                <span class="tech-badge">GRU Neural Network</span>
-                <span class="tech-badge">GitHub CSV Data</span>
-                <span class="tech-badge">100% Client-side</span>
-            </div>
+            <p class="subtitle">Using real data from your GitHub CSV file with GRU neural network</p>
+            <p style="margin-top: 10px;">
+                <a href="https://github.com/buschevapoly-del/again/blob/main/my_data.csv" 
+                   class="github-link" target="_blank">
+                   📁 View my_data.csv on GitHub
+                </a>
+            </p>
         </header>
-        
-        <div class="demo-note">
-            <strong>Note:</strong> This demo loads real S&P 500 data from your GitHub CSV file. All processing happens in your browser.
-        </div>
         
         <div class="dashboard">
             <div class="card">
-                <div class="card-title">
-                    <span class="icon">🚀</span>
-                    <span>Data & Controls</span>
-                </div>
+                <div class="card-title">🚀 Data & Controls</div>
                 
                 <div class="data-section">
-                    <div class="icon">📊</div>
-                    <h3>S&P 500 Data Loader</h3>
-                    <p>Loads real S&P 500 data from your GitHub CSV file</p>
+                    <h3>GitHub CSV Data Loader</h3>
+                    <p>Loads real S&P 500 data directly from your GitHub repository</p>
                     <button class="btn btn-secondary" id="refreshDataBtn">
                         <span class="loader" style="display: none;" id="refreshLoader"></span>
-                        <span class="icon">🔄</span>
-                        <span>Load Data from GitHub</span>
+                        📥 Load Data from GitHub
                     </button>
                 </div>
                 
                 <div class="file-info" id="fileInfo">
                     <div style="text-align: center; padding: 20px;">
                         <div class="loader"></div>
-                        <p>Loading S&P 500 data from GitHub...</p>
+                        <p>Loading data from GitHub...</p>
                     </div>
                 </div>
                 
                 <div class="controls">
                     <button class="btn" id="preprocessBtn" disabled>
                         <span class="loader" style="display: none;" id="preprocessLoader"></span>
-                        <span class="icon">⚙️</span>
-                        <span>Preprocess Data</span>
+                        ⚙️ Preprocess Data
                     </button>
                     <button class="btn" id="trainBtn" disabled>
                         <span class="loader" style="display: none;" id="trainLoader"></span>
-                        <span class="icon">🧠</span>
-                        <span>Train GRU Model</span>
+                        🧠 Train GRU Model
                     </button>
                     <button class="btn" id="predictBtn" disabled>
-                        <span class="icon">🔮</span>
-                        <span>Predict Next 5 Days</span>
+                        🔮 Predict Next 5 Days
                     </button>
                 </div>
                 
@@ -560,10 +419,7 @@
             </div>
             
             <div class="card">
-                <div class="card-title">
-                    <span class="icon">📈</span>
-                    <span>Training Metrics</span>
-                </div>
+                <div class="card-title">📈 Training Metrics</div>
                 <div class="metrics">
                     <div class="metric">
                         <div class="metric-value" id="trainLoss">-</div>
@@ -588,50 +444,39 @@
             </div>
             
             <div class="card">
-                <div class="card-title">
-                    <span class="icon">📅</span>
-                    <span>Historical S&P 500 Data</span>
-                </div>
+                <div class="card-title">📅 Historical Data</div>
                 <div class="chart-container">
                     <canvas id="historyChart"></canvas>
                 </div>
             </div>
             
             <div class="card prediction-container">
-                <div class="card-title">
-                    <span class="icon">🔮</span>
-                    <span>Next 5-Day Predictions</span>
-                </div>
+                <div class="card-title">🔮 Next 5-Day Predictions</div>
                 <div class="prediction-grid" id="predictionGrid">
                     <div class="prediction-day">
                         <div class="day-label">Day 1</div>
                         <div class="prediction-value">-</div>
                         <div class="prediction-confidence">Confidence: -</div>
-                        <div style="font-size: 0.8rem; margin-top: 8px; opacity: 0.7;">Probability: -</div>
                     </div>
                     <div class="prediction-day">
                         <div class="day-label">Day 2</div>
                         <div class="prediction-value">-</div>
                         <div class="prediction-confidence">Confidence: -</div>
-                        <div style="font-size: 0.8rem; margin-top: 8px; opacity: 0.7;">Probability: -</div>
                     </div>
                     <div class="prediction-day">
                         <div class="day-label">Day 3</div>
                         <div class="prediction-value">-</div>
                         <div class="prediction-confidence">Confidence: -</div>
-                        <div style="font-size: 0.8rem; margin-top: 8px; opacity: 0.7;">Probability: -</div>
                     </div>
                     <div class="prediction-day">
                         <div class="day-label">Day 4</div>
-                        <div class="prediction-value">1</div>
+                        <div class="prediction-value">-</div>
                         <div class="prediction-confidence">Confidence: -</div>
-                        <div style="font-size: 0.8rem; margin-top: 8px; opacity: 0.7;">Probability: -</div>
                     </div>
                     <div class="prediction-day">
                         <div class="day-label">Day 5</div>
                         <div class="prediction-value">-</div>
                         <div class="prediction-confidence">Confidence: -</div>
-                        <div style="font-size: 0.8rem; margin-top: 8px; opacity: 0.7;">Probability: -</div>
                     </div>
                 </div>
                 <div class="chart-container">
@@ -639,22 +484,8 @@
                 </div>
             </div>
         </div>
-        
-        <footer>
-            <p>🚀 <span>Browser-based Machine Learning Demo</span> | Built with TensorFlow.js | Uses real data from GitHub</p>
-            <p style="margin-top: 10px; font-size: 0.85rem; opacity: 0.6;">
-                Note: Predictions are for demonstration purposes only. Not financial advice.
-                All computations run 100% in your browser using TensorFlow.js.
-            </p>
-            <div class="footer-links">
-                <a href="https://www.tensorflow.org/js" target="_blank">TensorFlow.js</a>
-                <a href="https://github.com/buschevapoly-del/again/blob/main/my_data.csv" target="_blank">GitHub Data Source</a>
-                <a href="https://chartjs.org" target="_blank">Chart.js</a>
-            </div>
-        </footer>
     </div>
 
-    <!-- Module imports -->
     <script type="module" src="app.js"></script>
 </body>
 </html>
