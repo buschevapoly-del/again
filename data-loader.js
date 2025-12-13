@@ -1,4 +1,4 @@
-// data-loader.js - FIXED VERSION
+// data-loader.js - LOADS DATA FROM GITHUB CSV
 export class DataLoader {
     constructor() {
         console.log('DataLoader initialized');
@@ -15,13 +15,16 @@ export class DataLoader {
         this.testIndices = null;
         this.symbol = '^GSPC';
         this.isFetching = false;
+        
+        // URL вашего CSV файла на GitHub
+        this.csvUrl = 'https://raw.githubusercontent.com/buschevapoly-del/again/main/my_data.csv';
     }
 
     /**
-     * Fetch S&P 500 data
+     * Загружает данные из вашего CSV файла на GitHub
      */
-    async fetchYahooFinanceData(startYear = 2020) {
-        console.log('Fetching data from', startYear);
+    async fetchYahooFinanceData() {
+        console.log('Loading data from GitHub CSV...');
         
         if (this.isFetching) {
             console.log('Already fetching, skipping...');
@@ -31,74 +34,169 @@ export class DataLoader {
         this.isFetching = true;
         
         try {
-            // Always use simulated data to avoid API issues
-            this.data = this.generateSimulatedData(startYear);
-            console.log('✅ Data loaded:', this.data.prices.length, 'points');
+            // Загружаем данные из вашего CSV файла
+            this.data = await this.loadDataFromGitHub();
+            console.log('✅ Data loaded from GitHub:', this.data.prices.length, 'points');
             return this.data;
         } catch (error) {
-            console.error('Error:', error);
-            throw error;
+            console.error('❌ Error loading from GitHub:', error.message);
+            // Fallback к симуляции если GitHub недоступен
+            console.log('⚠️ Falling back to simulated data...');
+            this.data = this.generateSimulatedData(2020);
+            return this.data;
         } finally {
             this.isFetching = false;
         }
     }
 
     /**
-     * Generate simulated S&P 500 data
+     * Загружает и парсит CSV файл с вашего GitHub
      */
-    generateSimulatedData(startYear) {
-        console.log('Generating simulated data starting from', startYear);
+    async loadDataFromGitHub() {
+        console.log(`📥 Fetching CSV from: ${this.csvUrl}`);
+        
+        try {
+            const response = await fetch(this.csvUrl);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const csvText = await response.text();
+            
+            if (!csvText || csvText.length < 10) {
+                throw new Error('CSV file is empty or too small');
+            }
+            
+            console.log('📊 CSV loaded, parsing...');
+            
+            // Парсим CSV
+            const rows = csvText.trim().split('\n');
+            
+            if (rows.length < 2) {
+                throw new Error('CSV has no data rows');
+            }
+            
+            // Определяем заголовки
+            const headers = rows[0].split(',').map(h => h.trim());
+            
+            console.log('📋 CSV headers:', headers);
+            
+            // Ищем колонки с датами и ценами
+            let dateIndex = -1;
+            let priceIndex = -1;
+            
+            // Попробуем найти стандартные названия колонок
+            headers.forEach((header, index) => {
+                const lowerHeader = header.toLowerCase();
+                if (lowerHeader.includes('date')) {
+                    dateIndex = index;
+                } else if (lowerHeader.includes('close') || 
+                          lowerHeader.includes('price') || 
+                          lowerHeader.includes('adj') ||
+                          lowerHeader.includes('value')) {
+                    priceIndex = index;
+                }
+            });
+            
+            // Если не нашли стандартные названия, используем первые две колонки
+            if (dateIndex === -1) dateIndex = 0;
+            if (priceIndex === -1) priceIndex = 1;
+            
+            console.log(`🔍 Using column ${dateIndex} for dates, column ${priceIndex} for prices`);
+            
+            const dates = [];
+            const prices = [];
+            
+            // Парсим строки данных
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row.trim()) continue;
+                
+                const columns = row.split(',');
+                
+                if (columns.length > Math.max(dateIndex, priceIndex)) {
+                    const dateStr = columns[dateIndex].trim();
+                    const priceStr = columns[priceIndex].trim();
+                    
+                    const price = parseFloat(priceStr);
+                    
+                    // Проверяем валидность данных
+                    if (!isNaN(price) && price > 0 && dateStr) {
+                        dates.push(dateStr);
+                        prices.push(price);
+                    }
+                }
+            }
+            
+            if (dates.length === 0 || prices.length === 0) {
+                throw new Error('No valid data found in CSV');
+            }
+            
+            console.log(`✅ Parsed ${dates.length} data points`);
+            console.log(`📅 Date range: ${dates[0]} to ${dates[dates.length - 1]}`);
+            console.log(`💰 Price range: $${Math.min(...prices).toFixed(2)} to $${Math.max(...prices).toFixed(2)}`);
+            
+            return {
+                dates: dates,
+                symbol: 'S&P 500 (Your GitHub Data)',
+                prices: prices,
+                source: 'GitHub CSV: ' + this.csvUrl
+            };
+            
+        } catch (error) {
+            console.error('❌ Error parsing CSV:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Функция для симуляции данных (используется как fallback)
+     */
+    generateSimulatedData(startYear = 2020) {
+        console.log('⚠️ Generating simulated data...');
         
         const currentYear = new Date().getFullYear();
         const years = currentYear - startYear + 1;
-        const totalDays = years * 252; // Trading days per year
+        const totalDays = years * 252;
         
         const dates = [];
         const prices = [];
         
-        let price = 4000; // Starting price
+        let price = 4000;
         let currentDate = new Date(startYear, 0, 1);
         
         for (let i = 0; i < totalDays; i++) {
-            // Move to next day
             currentDate.setDate(currentDate.getDate() + 1);
             
-            // Skip weekends
             const dayOfWeek = currentDate.getDay();
             if (dayOfWeek === 0 || dayOfWeek === 6) {
                 continue;
             }
             
-            // Generate price movement
-            const changePercent = (Math.random() - 0.5) * 0.04; // ±2% daily
+            const changePercent = (Math.random() - 0.5) * 0.04;
             price = price * (1 + changePercent);
-            price = Math.max(price, 3500); // Keep reasonable
+            price = Math.max(price, 3500);
             
             dates.push(currentDate.toISOString().split('T')[0]);
             prices.push(price);
             
-            // Safety stop
             if (prices.length >= 1000) break;
-        }
-        
-        // Ensure we have data
-        if (prices.length === 0) {
-            throw new Error('Failed to generate simulated data');
         }
         
         return {
             dates: dates,
             symbol: 'S&P 500 (Simulated)',
             prices: prices,
-            source: 'Simulated Data'
+            source: 'Simulated Data (GitHub unavailable)'
         };
     }
 
     /**
-     * Normalize data to 0-1 range
+     * Нормализация данных
      */
     normalizeData() {
-        console.log('Normalizing data...');
+        console.log('⚙️ Normalizing data...');
         
         if (!this.data || !this.data.prices) {
             throw new Error('No data loaded. Call fetchYahooFinanceData first.');
@@ -106,30 +204,27 @@ export class DataLoader {
         
         const prices = this.data.prices;
         
-        // Find min and max
         this.minValue = Math.min(...prices);
         this.maxValue = Math.max(...prices);
         
-        // Normalize
         this.normalizedData = prices.map(p => 
             (p - this.minValue) / (this.maxValue - this.minValue)
         );
         
-        // Calculate returns
         this.returns = [];
         for (let i = 1; i < prices.length; i++) {
             this.returns.push((prices[i] - prices[i-1]) / prices[i-1]);
         }
         
         console.log('✅ Data normalized');
-        console.log('Min:', this.minValue.toFixed(2), 'Max:', this.maxValue.toFixed(2));
+        console.log('📊 Min:', this.minValue.toFixed(2), 'Max:', this.maxValue.toFixed(2));
     }
 
     /**
-     * Prepare dataset for training
+     * Подготовка датасета
      */
     prepareDataset(sequenceLength = 60, predictionDays = 5, trainSplit = 0.8) {
-        console.log('Preparing dataset...');
+        console.log('📦 Preparing dataset...');
         
         if (!this.normalizedData) {
             throw new Error('Data not normalized. Call normalizeData first.');
@@ -144,7 +239,6 @@ export class DataLoader {
         const samples = [];
         const labels = [];
         
-        // Create sliding windows
         for (let i = 0; i < totalSamples; i++) {
             const input = this.normalizedData.slice(i, i + sequenceLength);
             const futureReturns = this.returns.slice(i + sequenceLength, i + sequenceLength + predictionDays);
@@ -154,16 +248,14 @@ export class DataLoader {
             labels.push(output);
         }
         
-        // Split into train/test
         const splitIndex = Math.floor(samples.length * trainSplit);
         this.trainIndices = Array.from({length: splitIndex}, (_, i) => i);
         this.testIndices = Array.from({length: samples.length - splitIndex}, (_, i) => i + splitIndex);
         
-        console.log('Total samples:', samples.length);
-        console.log('Train samples:', splitIndex);
-        console.log('Test samples:', samples.length - splitIndex);
+        console.log('📊 Total samples:', samples.length);
+        console.log('🎯 Train samples:', splitIndex);
+        console.log('🧪 Test samples:', samples.length - splitIndex);
         
-        // Create tensors
         this.X_train = tf.tensor3d(
             this.trainIndices.map(idx => [samples[idx]]),
             [splitIndex, 1, sequenceLength]
@@ -185,15 +277,15 @@ export class DataLoader {
         );
         
         console.log('✅ Dataset prepared');
-        console.log('X_train shape:', this.X_train.shape);
-        console.log('y_train shape:', this.y_train.shape);
+        console.log('📐 X_train shape:', this.X_train.shape);
+        console.log('📐 y_train shape:', this.y_train.shape);
     }
 
     /**
-     * Get statistics about the data - FIXED VERSION
+     * Получение статистики
      */
     getStatistics() {
-        console.log('Getting statistics...');
+        console.log('📈 Getting statistics...');
         
         if (!this.data || !this.data.prices) {
             console.log('No data available for statistics');
@@ -211,7 +303,8 @@ export class DataLoader {
                 },
                 trainSamples: 0,
                 testSamples: 0,
-                normalized: false
+                normalized: false,
+                source: 'No data'
             };
         }
         
@@ -219,7 +312,6 @@ export class DataLoader {
         const returns = this.returns || [];
         const dates = this.data.dates || [];
         
-        // Calculate statistics with null checks
         let totalReturn = 0;
         let positiveDays = 0;
         
@@ -233,7 +325,6 @@ export class DataLoader {
         const avgReturn = returns.length > 0 ? totalReturn / returns.length : 0;
         const positiveRate = returns.length > 0 ? (positiveDays / returns.length) * 100 : 0;
         
-        // Format values with null checks
         const currentPrice = prices.length > 0 ? '$' + prices[prices.length - 1].toFixed(2) : 'N/A';
         const minPrice = prices.length > 0 ? '$' + Math.min(...prices).toFixed(2) : 'N/A';
         const maxPrice = prices.length > 0 ? '$' + Math.max(...prices).toFixed(2) : 'N/A';
@@ -241,8 +332,8 @@ export class DataLoader {
         const endDate = dates.length > 0 ? dates[dates.length - 1] : 'N/A';
         
         return {
-            symbol: this.data.symbol || 'Unknown',
-            source: this.data.source || 'Simulated',
+            symbol: this.data.symbol || 'S&P 500',
+            source: this.data.source || 'Unknown',
             numDays: prices.length || 0,
             currentPrice: currentPrice,
             dateRange: {
@@ -266,7 +357,7 @@ export class DataLoader {
     }
 
     /**
-     * Get the latest sequence for prediction
+     * Получение последней последовательности для предсказания
      */
     getLatestSequence(sequenceLength = 60) {
         if (!this.normalizedData || this.normalizedData.length < sequenceLength) {
@@ -278,65 +369,6 @@ export class DataLoader {
     }
 
     /**
-     * Get price data for visualization
+     * Получение данных цен для визуализации
      */
-    getPriceData(maxPoints = 200) {
-        if (!this.data || !this.data.prices || !this.data.dates) {
-            return [];
-        }
-        
-        const { dates, prices } = this.data;
-        
-        // Sample data if too many points
-        if (dates.length <= maxPoints) {
-            return dates.map((date, idx) => ({
-                date: date || 'N/A',
-                price: prices[idx] || 0
-            }));
-        }
-        
-        const step = Math.ceil(dates.length / maxPoints);
-        const result = [];
-        
-        for (let i = 0; i < dates.length; i += step) {
-            result.push({
-                date: dates[i] || 'N/A',
-                price: prices[i] || 0
-            });
-        }
-        
-        // Always include last point
-        if (result.length > 0 && result[result.length - 1].date !== dates[dates.length - 1]) {
-            result.push({
-                date: dates[dates.length - 1] || 'N/A',
-                price: prices[prices.length - 1] || 0
-            });
-        }
-        
-        return result;
-    }
-
-    /**
-     * Clean up memory
-     */
-    dispose() {
-        console.log('Cleaning up DataLoader memory...');
-        
-        const tensors = [this.X_train, this.y_train, this.X_test, this.y_test];
-        
-        for (const tensor of tensors) {
-            if (tensor && tensor.dispose) {
-                try {
-                    tensor.dispose();
-                } catch (e) {
-                    // Ignore disposal errors
-                }
-            }
-        }
-        
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-    }
-}
+    getPrice
