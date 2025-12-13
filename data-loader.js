@@ -1,374 +1,285 @@
-// data-loader.js - LOADS DATA FROM GITHUB CSV
-export class DataLoader {
-    constructor() {
-        console.log('DataLoader initialized');
-        this.data = null;
-        this.normalizedData = null;
-        this.minValue = null;
-        this.maxValue = null;
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
-        this.returns = null;
-        this.trainIndices = null;
-        this.testIndices = null;
-        this.symbol = '^GSPC';
-        this.isFetching = false;
+// gru.js
+export class GRUModel {
+    constructor(sequenceLength = 60, numFeatures = 1, predictionDays = 5) {
+        console.log('🧠 GRUModel initialized');
+        this.sequenceLength = sequenceLength;
+        this.numFeatures = numFeatures;
+        this.predictionDays = predictionDays;
+        this.model = null;
+        this.history = null;
+        this.isTrained = false;
+        this.trainingLogs = [];
         
-        // URL вашего CSV файла на GitHub
-        this.csvUrl = 'https://raw.githubusercontent.com/buschevapoly-del/again/main/my_data.csv';
+        // Training configuration
+        this.config = {
+            epochs: 20,
+            batchSize: 32,
+            validationSplit: 0.2,
+            learningRate: 0.001
+        };
     }
 
     /**
-     * Загружает данные из вашего CSV файла на GitHub
+     * Build and compile the GRU model
      */
-    async fetchYahooFinanceData() {
-        console.log('Loading data from GitHub CSV...');
+    buildModel() {
+        console.log('🏗️ Building GRU model...');
         
-        if (this.isFetching) {
-            console.log('Already fetching, skipping...');
-            return this.data;
+        if (this.model) {
+            this.model.dispose();
         }
         
-        this.isFetching = true;
-        
         try {
-            // Загружаем данные из вашего CSV файла
-            this.data = await this.loadDataFromGitHub();
-            console.log('✅ Data loaded from GitHub:', this.data.prices.length, 'points');
-            return this.data;
-        } catch (error) {
-            console.error('❌ Error loading from GitHub:', error.message);
-            // Fallback к симуляции если GitHub недоступен
-            console.log('⚠️ Falling back to simulated data...');
-            this.data = this.generateSimulatedData(2020);
-            return this.data;
-        } finally {
-            this.isFetching = false;
-        }
-    }
-
-    /**
-     * Загружает и парсит CSV файл с вашего GitHub
-     */
-    async loadDataFromGitHub() {
-        console.log(`📥 Fetching CSV from: ${this.csvUrl}`);
-        
-        try {
-            const response = await fetch(this.csvUrl);
+            this.model = tf.sequential();
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
+            // GRU layer
+            this.model.add(tf.layers.gru({
+                units: 32,
+                returnSequences: false,
+                activation: 'tanh',
+                inputShape: [this.numFeatures, this.sequenceLength]
+            }));
             
-            const csvText = await response.text();
+            // Dropout for regularization
+            this.model.add(tf.layers.dropout({rate: 0.2}));
             
-            if (!csvText || csvText.length < 10) {
-                throw new Error('CSV file is empty or too small');
-            }
+            // Dense layer
+            this.model.add(tf.layers.dense({
+                units: 16,
+                activation: 'relu'
+            }));
             
-            console.log('📊 CSV loaded, parsing...');
+            // Output layer (5 days prediction)
+            this.model.add(tf.layers.dense({
+                units: this.predictionDays,
+                activation: 'sigmoid'
+            }));
             
-            // Парсим CSV
-            const rows = csvText.trim().split('\n');
-            
-            if (rows.length < 2) {
-                throw new Error('CSV has no data rows');
-            }
-            
-            // Определяем заголовки
-            const headers = rows[0].split(',').map(h => h.trim());
-            
-            console.log('📋 CSV headers:', headers);
-            
-            // Ищем колонки с датами и ценами
-            let dateIndex = -1;
-            let priceIndex = -1;
-            
-            // Попробуем найти стандартные названия колонок
-            headers.forEach((header, index) => {
-                const lowerHeader = header.toLowerCase();
-                if (lowerHeader.includes('date')) {
-                    dateIndex = index;
-                } else if (lowerHeader.includes('close') || 
-                          lowerHeader.includes('price') || 
-                          lowerHeader.includes('adj') ||
-                          lowerHeader.includes('value')) {
-                    priceIndex = index;
-                }
+            // Compile model
+            const optimizer = tf.train.adam(this.config.learningRate);
+            this.model.compile({
+                optimizer: optimizer,
+                loss: 'binaryCrossentropy',
+                metrics: ['accuracy']
             });
             
-            // Если не нашли стандартные названия, используем первые две колонки
-            if (dateIndex === -1) dateIndex = 0;
-            if (priceIndex === -1) priceIndex = 1;
+            console.log('✅ GRU model built successfully');
             
-            console.log(`🔍 Using column ${dateIndex} for dates, column ${priceIndex} for prices`);
+            // Print model summary
+            const totalParams = this.model.countParams();
+            console.log('📊 Total parameters:', totalParams.toLocaleString());
             
-            const dates = [];
-            const prices = [];
-            
-            // Парсим строки данных
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                if (!row.trim()) continue;
-                
-                const columns = row.split(',');
-                
-                if (columns.length > Math.max(dateIndex, priceIndex)) {
-                    const dateStr = columns[dateIndex].trim();
-                    const priceStr = columns[priceIndex].trim();
-                    
-                    const price = parseFloat(priceStr);
-                    
-                    // Проверяем валидность данных
-                    if (!isNaN(price) && price > 0 && dateStr) {
-                        dates.push(dateStr);
-                        prices.push(price);
-                    }
-                }
-            }
-            
-            if (dates.length === 0 || prices.length === 0) {
-                throw new Error('No valid data found in CSV');
-            }
-            
-            console.log(`✅ Parsed ${dates.length} data points`);
-            console.log(`📅 Date range: ${dates[0]} to ${dates[dates.length - 1]}`);
-            console.log(`💰 Price range: $${Math.min(...prices).toFixed(2)} to $${Math.max(...prices).toFixed(2)}`);
-            
-            return {
-                dates: dates,
-                symbol: 'S&P 500 (Your GitHub Data)',
-                prices: prices,
-                source: 'GitHub CSV: ' + this.csvUrl
-            };
+            return this.model;
             
         } catch (error) {
-            console.error('❌ Error parsing CSV:', error);
+            console.error('❌ Error building model:', error);
             throw error;
         }
     }
 
     /**
-     * Функция для симуляции данных (используется как fallback)
+     * Train the model
      */
-    generateSimulatedData(startYear = 2020) {
-        console.log('⚠️ Generating simulated data...');
+    async train(X_train, y_train, onEpochEnd = null) {
+        console.log('🎯 Starting model training...');
         
-        const currentYear = new Date().getFullYear();
-        const years = currentYear - startYear + 1;
-        const totalDays = years * 252;
+        if (!this.model) {
+            throw new Error('Model not built. Call buildModel first.');
+        }
         
-        const dates = [];
-        const prices = [];
+        console.log('📐 Training data shape:', X_train.shape);
+        console.log('📐 Training labels shape:', y_train.shape);
         
-        let price = 4000;
-        let currentDate = new Date(startYear, 0, 1);
+        this.trainingLogs = [];
         
-        for (let i = 0; i < totalDays; i++) {
-            currentDate.setDate(currentDate.getDate() + 1);
+        try {
+            this.history = await this.model.fit(X_train, y_train, {
+                epochs: this.config.epochs,
+                batchSize: this.config.batchSize,
+                validationSplit: this.config.validationSplit,
+                shuffle: true,
+                verbose: 0,
+                callbacks: {
+                    onEpochEnd: async (epoch, logs) => {
+                        console.log(`📈 Epoch ${epoch + 1}/${this.config.epochs} - loss: ${logs.loss?.toFixed(4) || 'N/A'}, val_loss: ${logs.val_loss ? logs.val_loss.toFixed(4) : 'N/A'}`);
+                        
+                        this.trainingLogs.push({
+                            epoch: epoch + 1,
+                            loss: logs.loss,
+                            val_loss: logs.val_loss,
+                            acc: logs.acc,
+                            val_acc: logs.val_acc
+                        });
+                        
+                        if (onEpochEnd) {
+                            onEpochEnd(epoch + 1, logs, this.config.epochs);
+                        }
+                        
+                        await tf.nextFrame();
+                    }
+                }
+            });
             
-            const dayOfWeek = currentDate.getDay();
-            if (dayOfWeek === 0 || dayOfWeek === 6) {
-                continue;
+            this.isTrained = true;
+            console.log('✅ Model training completed');
+            
+            return this.history;
+            
+        } catch (error) {
+            console.error('❌ Error during training:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Evaluate model on test data
+     */
+    evaluate(X_test, y_test) {
+        console.log('📊 Evaluating model...');
+        
+        if (!this.model || !this.isTrained) {
+            throw new Error('Model not trained. Call train first.');
+        }
+        
+        try {
+            const results = this.model.evaluate(X_test, y_test, {
+                batchSize: this.config.batchSize,
+                verbose: 0
+            });
+            
+            const loss = results[0]?.dataSync()[0] || 0;
+            const accuracy = results[1]?.dataSync()[0] || 0;
+            
+            // Calculate additional metrics
+            const predictions = this.model.predict(X_test);
+            const predData = predictions.dataSync();
+            const trueData = y_test.dataSync();
+            
+            let correct = 0;
+            let total = 0;
+            
+            for (let i = 0; i < predData.length; i++) {
+                const pred = predData[i] > 0.5 ? 1 : 0;
+                const trueVal = trueData[i];
+                if (pred === trueVal) correct++;
+                total++;
             }
             
-            const changePercent = (Math.random() - 0.5) * 0.04;
-            price = price * (1 + changePercent);
-            price = Math.max(price, 3500);
+            const binaryAccuracy = total > 0 ? correct / total : 0;
             
-            dates.push(currentDate.toISOString().split('T')[0]);
-            prices.push(price);
+            // Calculate RMSE
+            const mse = tf.metrics.meanSquaredError(y_test, predictions).dataSync()[0];
+            const rmse = Math.sqrt(mse);
             
-            if (prices.length >= 1000) break;
-        }
-        
-        return {
-            dates: dates,
-            symbol: 'S&P 500 (Simulated)',
-            prices: prices,
-            source: 'Simulated Data (GitHub unavailable)'
-        };
-    }
-
-    /**
-     * Нормализация данных
-     */
-    normalizeData() {
-        console.log('⚙️ Normalizing data...');
-        
-        if (!this.data || !this.data.prices) {
-            throw new Error('No data loaded. Call fetchYahooFinanceData first.');
-        }
-        
-        const prices = this.data.prices;
-        
-        this.minValue = Math.min(...prices);
-        this.maxValue = Math.max(...prices);
-        
-        this.normalizedData = prices.map(p => 
-            (p - this.minValue) / (this.maxValue - this.minValue)
-        );
-        
-        this.returns = [];
-        for (let i = 1; i < prices.length; i++) {
-            this.returns.push((prices[i] - prices[i-1]) / prices[i-1]);
-        }
-        
-        console.log('✅ Data normalized');
-        console.log('📊 Min:', this.minValue.toFixed(2), 'Max:', this.maxValue.toFixed(2));
-    }
-
-    /**
-     * Подготовка датасета
-     */
-    prepareDataset(sequenceLength = 60, predictionDays = 5, trainSplit = 0.8) {
-        console.log('📦 Preparing dataset...');
-        
-        if (!this.normalizedData) {
-            throw new Error('Data not normalized. Call normalizeData first.');
-        }
-        
-        const totalSamples = this.normalizedData.length - sequenceLength - predictionDays;
-        
-        if (totalSamples <= 0) {
-            throw new Error('Not enough data for training');
-        }
-        
-        const samples = [];
-        const labels = [];
-        
-        for (let i = 0; i < totalSamples; i++) {
-            const input = this.normalizedData.slice(i, i + sequenceLength);
-            const futureReturns = this.returns.slice(i + sequenceLength, i + sequenceLength + predictionDays);
-            const output = futureReturns.map(ret => ret > 0 ? 1 : 0);
+            // Clean up
+            predictions.dispose();
             
-            samples.push(input);
-            labels.push(output);
-        }
-        
-        const splitIndex = Math.floor(samples.length * trainSplit);
-        this.trainIndices = Array.from({length: splitIndex}, (_, i) => i);
-        this.testIndices = Array.from({length: samples.length - splitIndex}, (_, i) => i + splitIndex);
-        
-        console.log('📊 Total samples:', samples.length);
-        console.log('🎯 Train samples:', splitIndex);
-        console.log('🧪 Test samples:', samples.length - splitIndex);
-        
-        this.X_train = tf.tensor3d(
-            this.trainIndices.map(idx => [samples[idx]]),
-            [splitIndex, 1, sequenceLength]
-        );
-        
-        this.y_train = tf.tensor2d(
-            this.trainIndices.map(idx => labels[idx]),
-            [splitIndex, predictionDays]
-        );
-        
-        this.X_test = tf.tensor3d(
-            this.testIndices.map(idx => [samples[idx]]),
-            [samples.length - splitIndex, 1, sequenceLength]
-        );
-        
-        this.y_test = tf.tensor2d(
-            this.testIndices.map(idx => labels[idx]),
-            [samples.length - splitIndex, predictionDays]
-        );
-        
-        console.log('✅ Dataset prepared');
-        console.log('📐 X_train shape:', this.X_train.shape);
-        console.log('📐 y_train shape:', this.y_train.shape);
-    }
-
-    /**
-     * Получение статистики
-     */
-    getStatistics() {
-        console.log('📈 Getting statistics...');
-        
-        if (!this.data || !this.data.prices) {
-            console.log('No data available for statistics');
+            if (Array.isArray(results)) {
+                results.forEach(r => {
+                    if (r && r.dispose) r.dispose();
+                });
+            }
+            
+            const metrics = {
+                loss: parseFloat(loss.toFixed(4)),
+                accuracy: parseFloat(accuracy.toFixed(4)),
+                binaryAccuracy: parseFloat(binaryAccuracy.toFixed(4)),
+                rmse: parseFloat(rmse.toFixed(4)),
+                mse: parseFloat(mse.toFixed(4))
+            };
+            
+            console.log('✅ Evaluation completed:', metrics);
+            return metrics;
+            
+        } catch (error) {
+            console.error('❌ Error during evaluation:', error);
             return {
-                symbol: 'No data loaded',
-                numDays: 0,
-                currentPrice: 'N/A',
-                dateRange: { start: 'N/A', end: 'N/A' },
-                priceRange: { min: 'N/A', max: 'N/A' },
-                returns: {
-                    average: 'N/A',
-                    positiveDays: 0,
-                    totalDays: 0,
-                    positiveRate: '0%'
-                },
-                trainSamples: 0,
-                testSamples: 0,
-                normalized: false,
-                source: 'No data'
+                loss: 0,
+                accuracy: 0,
+                binaryAccuracy: 0,
+                rmse: 0,
+                mse: 0
             };
         }
+    }
+
+    /**
+     * Make predictions
+     */
+    predict(input) {
+        console.log('🔮 Making predictions...');
         
-        const prices = this.data.prices || [];
-        const returns = this.returns || [];
-        const dates = this.data.dates || [];
-        
-        let totalReturn = 0;
-        let positiveDays = 0;
-        
-        for (const ret of returns) {
-            if (typeof ret === 'number') {
-                totalReturn += ret;
-                if (ret > 0) positiveDays++;
-            }
+        if (!this.model || !this.isTrained) {
+            throw new Error('Model not trained. Call train first.');
         }
         
-        const avgReturn = returns.length > 0 ? totalReturn / returns.length : 0;
-        const positiveRate = returns.length > 0 ? (positiveDays / returns.length) * 100 : 0;
-        
-        const currentPrice = prices.length > 0 ? '$' + prices[prices.length - 1].toFixed(2) : 'N/A';
-        const minPrice = prices.length > 0 ? '$' + Math.min(...prices).toFixed(2) : 'N/A';
-        const maxPrice = prices.length > 0 ? '$' + Math.max(...prices).toFixed(2) : 'N/A';
-        const startDate = dates.length > 0 ? dates[0] : 'N/A';
-        const endDate = dates.length > 0 ? dates[dates.length - 1] : 'N/A';
-        
+        try {
+            const prediction = this.model.predict(input);
+            const values = prediction.dataSync();
+            
+            // Format predictions
+            const predictions = [];
+            for (let i = 0; i < this.predictionDays; i++) {
+                const prob = values[i] || 0;
+                predictions.push({
+                    day: i + 1,
+                    probability: prob,
+                    prediction: prob > 0.5 ? 1 : 0,
+                    confidence: Math.abs(prob - 0.5) * 2,
+                    direction: prob > 0.5 ? 'UP' : 'DOWN',
+                    strength: prob > 0.5 ? prob : 1 - prob
+                });
+            }
+            
+            prediction.dispose();
+            console.log('✅ Predictions generated');
+            return predictions;
+            
+        } catch (error) {
+            console.error('❌ Error during prediction:', error);
+            // Return default predictions
+            return Array.from({length: this.predictionDays}, (_, i) => ({
+                day: i + 1,
+                probability: 0.5,
+                prediction: 0,
+                confidence: 0,
+                direction: 'UNKNOWN',
+                strength: 0.5
+            }));
+        }
+    }
+
+    /**
+     * Get model configuration
+     */
+    getConfig() {
         return {
-            symbol: this.data.symbol || 'S&P 500',
-            source: this.data.source || 'Unknown',
-            numDays: prices.length || 0,
-            currentPrice: currentPrice,
-            dateRange: {
-                start: startDate,
-                end: endDate
-            },
-            priceRange: {
-                min: minPrice,
-                max: maxPrice
-            },
-            returns: {
-                average: (avgReturn * 100).toFixed(2) + '%',
-                positiveDays: positiveDays,
-                totalDays: returns.length,
-                positiveRate: positiveRate.toFixed(1) + '%'
-            },
-            trainSamples: this.trainIndices ? this.trainIndices.length : 0,
-            testSamples: this.testIndices ? this.testIndices.length : 0,
-            normalized: this.normalizedData !== null
+            ...this.config,
+            sequenceLength: this.sequenceLength,
+            numFeatures: this.numFeatures,
+            predictionDays: this.predictionDays,
+            isTrained: this.isTrained,
+            totalParams: this.model ? this.model.countParams() : 0
         };
     }
 
     /**
-     * Получение последней последовательности для предсказания
+     * Get training logs
      */
-    getLatestSequence(sequenceLength = 60) {
-        if (!this.normalizedData || this.normalizedData.length < sequenceLength) {
-            throw new Error('Not enough normalized data for prediction');
-        }
-        
-        const latestSequence = this.normalizedData.slice(-sequenceLength);
-        return tf.tensor3d([[latestSequence]], [1, 1, sequenceLength]);
+    getTrainingLogs() {
+        return this.trainingLogs;
     }
 
     /**
-     * Получение данных цен для визуализации
+     * Clean up memory
      */
-    getPrice
+    dispose() {
+        if (this.model) {
+            this.model.dispose();
+            this.model = null;
+        }
+        this.history = null;
+        this.isTrained = false;
+        this.trainingLogs = [];
+    }
+}
