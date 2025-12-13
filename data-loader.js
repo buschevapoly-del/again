@@ -1,4 +1,4 @@
-// data-loader.js
+// data-loader.js - FIXED VERSION
 export class DataLoader {
     constructor() {
         console.log('DataLoader initialized');
@@ -79,6 +79,11 @@ export class DataLoader {
             
             // Safety stop
             if (prices.length >= 1000) break;
+        }
+        
+        // Ensure we have data
+        if (prices.length === 0) {
+            throw new Error('Failed to generate simulated data');
         }
         
         return {
@@ -185,47 +190,68 @@ export class DataLoader {
     }
 
     /**
-     * Get statistics about the data
+     * Get statistics about the data - FIXED VERSION
      */
     getStatistics() {
         console.log('Getting statistics...');
         
-        if (!this.data) {
+        if (!this.data || !this.data.prices) {
+            console.log('No data available for statistics');
             return {
                 symbol: 'No data loaded',
                 numDays: 0,
                 currentPrice: 'N/A',
-                status: 'Load data first'
+                dateRange: { start: 'N/A', end: 'N/A' },
+                priceRange: { min: 'N/A', max: 'N/A' },
+                returns: {
+                    average: 'N/A',
+                    positiveDays: 0,
+                    totalDays: 0,
+                    positiveRate: '0%'
+                },
+                trainSamples: 0,
+                testSamples: 0,
+                normalized: false
             };
         }
         
-        const prices = this.data.prices;
+        const prices = this.data.prices || [];
         const returns = this.returns || [];
+        const dates = this.data.dates || [];
         
-        // Calculate statistics
+        // Calculate statistics with null checks
         let totalReturn = 0;
         let positiveDays = 0;
         
         for (const ret of returns) {
-            totalReturn += ret;
-            if (ret > 0) positiveDays++;
+            if (typeof ret === 'number') {
+                totalReturn += ret;
+                if (ret > 0) positiveDays++;
+            }
         }
         
         const avgReturn = returns.length > 0 ? totalReturn / returns.length : 0;
         const positiveRate = returns.length > 0 ? (positiveDays / returns.length) * 100 : 0;
         
+        // Format values with null checks
+        const currentPrice = prices.length > 0 ? '$' + prices[prices.length - 1].toFixed(2) : 'N/A';
+        const minPrice = prices.length > 0 ? '$' + Math.min(...prices).toFixed(2) : 'N/A';
+        const maxPrice = prices.length > 0 ? '$' + Math.max(...prices).toFixed(2) : 'N/A';
+        const startDate = dates.length > 0 ? dates[0] : 'N/A';
+        const endDate = dates.length > 0 ? dates[dates.length - 1] : 'N/A';
+        
         return {
-            symbol: this.data.symbol,
+            symbol: this.data.symbol || 'Unknown',
             source: this.data.source || 'Simulated',
-            numDays: prices.length,
-            currentPrice: '$' + prices[prices.length - 1].toFixed(2),
+            numDays: prices.length || 0,
+            currentPrice: currentPrice,
             dateRange: {
-                start: this.data.dates[0],
-                end: this.data.dates[this.data.dates.length - 1]
+                start: startDate,
+                end: endDate
             },
             priceRange: {
-                min: '$' + Math.min(...prices).toFixed(2),
-                max: '$' + Math.max(...prices).toFixed(2)
+                min: minPrice,
+                max: maxPrice
             },
             returns: {
                 average: (avgReturn * 100).toFixed(2) + '%',
@@ -255,15 +281,17 @@ export class DataLoader {
      * Get price data for visualization
      */
     getPriceData(maxPoints = 200) {
-        if (!this.data) return [];
+        if (!this.data || !this.data.prices || !this.data.dates) {
+            return [];
+        }
         
         const { dates, prices } = this.data;
         
         // Sample data if too many points
         if (dates.length <= maxPoints) {
             return dates.map((date, idx) => ({
-                date: date,
-                price: prices[idx]
+                date: date || 'N/A',
+                price: prices[idx] || 0
             }));
         }
         
@@ -272,16 +300,16 @@ export class DataLoader {
         
         for (let i = 0; i < dates.length; i += step) {
             result.push({
-                date: dates[i],
-                price: prices[i]
+                date: dates[i] || 'N/A',
+                price: prices[i] || 0
             });
         }
         
         // Always include last point
-        if (result[result.length - 1].date !== dates[dates.length - 1]) {
+        if (result.length > 0 && result[result.length - 1].date !== dates[dates.length - 1]) {
             result.push({
-                date: dates[dates.length - 1],
-                price: prices[prices.length - 1]
+                date: dates[dates.length - 1] || 'N/A',
+                price: prices[prices.length - 1] || 0
             });
         }
         
