@@ -1,41 +1,87 @@
-// app.js - УПРОЩЕННАЯ ВЕРСИЯ
+// app.js
 import { DataLoader } from './data-loader.js';
 import { GRUModel } from './gru.js';
 
 class StockPredictorApp {
     constructor() {
-        console.log('📱 Stock Predictor App starting...');
+        console.log('📱 S&P 500 Returns Predictor App starting...');
         this.dataLoader = new DataLoader();
-        this.model = null;
+        this.gruModel = new GRUModel();
+        this.trainingData = null;
         this.setupCharts();
         this.setupEventListeners();
         console.log('✅ App ready. Click "Load Data from GitHub"');
     }
     
     setupCharts() {
-        // Просто инициализируем пустые графики
+        // График исторических данных
         this.historyChart = this.createChart('historyChart', 'S&P 500 Price History', 'line');
-        this.trainingChart = this.createChart('trainingChart', 'Training Loss', 'line');
-        this.predictionChart = this.createChart('predictionChart', 'Predictions', 'bar');
-    }
-    
-    createChart(canvasId, label, type) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        return new Chart(ctx, {
-            type: type,
-            data: {
-                labels: [],
-                datasets: [{
-                    label: label,
+        
+        // График обучения
+        this.trainingChart = this.createChart('trainingChart', 'Training Loss', 'line', {
+            datasets: [
+                {
+                    label: 'Training Loss',
                     data: [],
                     borderColor: '#ff007a',
-                    backgroundColor: type === 'bar' ? '#ff007a' : 'rgba(255,0,122,0.1)',
-                    fill: type === 'line'
-                }]
-            },
+                    backgroundColor: 'rgba(255,0,122,0.1)',
+                    fill: true
+                },
+                {
+                    label: 'Validation Loss',
+                    data: [],
+                    borderColor: '#00aaff',
+                    backgroundColor: 'rgba(0,170,255,0.1)',
+                    fill: true
+                }
+            ]
+        });
+        
+        // График предсказаний
+        this.predictionChart = this.createChart('predictionChart', 'True vs Predicted Returns', 'line', {
+            datasets: [
+                {
+                    label: 'True Returns',
+                    data: [],
+                    borderColor: '#00ff88',
+                    backgroundColor: 'rgba(0,255,136,0.1)',
+                    fill: true
+                },
+                {
+                    label: 'Predicted Returns',
+                    data: [],
+                    borderColor: '#ff007a',
+                    backgroundColor: 'rgba(255,0,122,0.1)',
+                    fill: true
+                }
+            ]
+        });
+    }
+    
+    createChart(canvasId, label, type, customData = null) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const data = customData || {
+            labels: [],
+            datasets: [{
+                label: label,
+                data: [],
+                borderColor: '#ff007a',
+                backgroundColor: type === 'bar' ? '#ff007a' : 'rgba(255,0,122,0.1)',
+                fill: type === 'line'
+            }]
+        };
+        
+        return new Chart(ctx, {
+            type: type,
+            data: data,
             options: {
                 responsive: true,
-                maintainAspectRatio: false
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true
+                    }
+                }
             }
         });
     }
@@ -55,9 +101,13 @@ class StockPredictorApp {
             this.loadData();
         });
         
-        // Другие кнопки
+        // Кнопка предобработки
         document.getElementById('preprocessBtn').addEventListener('click', () => this.preprocessData());
+        
+        // Кнопка тренировки модели (главная задача)
         document.getElementById('trainBtn').addEventListener('click', () => this.trainModel());
+        
+        // Кнопка предсказаний
         document.getElementById('predictBtn').addEventListener('click', () => this.makePredictions());
         
         console.log('✅ Event listeners установлены');
@@ -67,7 +117,7 @@ class StockPredictorApp {
         console.log('🚀 ЗАПУСК loadData()');
         
         // Показываем, что процесс начался
-        this.showStatus('⏳ Loading data from GitHub...', 'info');
+        this.showStatus('⏳ Loading S&P 500 data from GitHub...', 'info');
         this.updateProgress(10, 'Starting...');
         
         const loadBtn = document.getElementById('refreshDataBtn');
@@ -79,27 +129,27 @@ class StockPredictorApp {
         if (loader) loader.style.display = 'inline-block';
         
         try {
-            this.updateProgress(30, 'Fetching CSV...');
+            this.updateProgress(30, 'Fetching CSV from GitHub...');
             
             // Загружаем данные
             const data = await this.dataLoader.fetchYahooFinanceData();
             
-            this.updateProgress(70, 'Processing data...');
+            this.updateProgress(70, 'Processing price data...');
             
             // Обновляем информацию о файле
             this.updateFileInfo(data);
             
             // Обновляем график
-            this.updateHistoryChart();
+            this.updateHistoryChart(data);
             
             this.updateProgress(100, '✅ Data loaded!');
-            this.showStatus('✅ Data loaded successfully!', 'success');
+            this.showStatus('✅ S&P 500 data loaded successfully!', 'success');
             
             // Активируем кнопку предобработки
             document.getElementById('preprocessBtn').disabled = false;
-            document.getElementById('preprocessBtn').innerHTML = '⚙️ Preprocess Data';
+            document.getElementById('preprocessBtn').innerHTML = '⚙️ Calculate Returns';
             
-            console.log('🎉 Данные загружены:', data);
+            console.log('🎉 Данные загружены:', data.prices.length, 'price points');
             
         } catch (error) {
             console.error('💥 Ошибка при загрузке:', error);
@@ -138,16 +188,35 @@ class StockPredictorApp {
                     <strong>Price Range</strong>
                     <div>${stats.priceRange}</div>
                 </div>
+                <div class="info-item">
+                    <strong>Volatility</strong>
+                    <div>${this.calculateVolatility(data.prices)}%</div>
+                </div>
             </div>
         `;
     }
     
-    updateHistoryChart() {
+    calculateVolatility(prices) {
+        if (!prices || prices.length < 2) return '0.00';
+        
+        let returns = [];
+        for (let i = 1; i < prices.length; i++) {
+            returns.push(Math.log(prices[i] / prices[i-1]));
+        }
+        
+        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+        const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / returns.length;
+        const annualVolatility = Math.sqrt(variance * 252) * 100;
+        
+        return annualVolatility.toFixed(2);
+    }
+    
+    updateHistoryChart(data) {
         const priceData = this.dataLoader.getPriceData();
         
         if (priceData && priceData.length > 0) {
             // Берем только каждую 10-ю точку для графика
-            const step = Math.ceil(priceData.length / 50);
+            const step = Math.ceil(priceData.length / 100);
             const displayData = [];
             
             for (let i = 0; i < priceData.length; i += step) {
@@ -166,14 +235,28 @@ class StockPredictorApp {
     }
     
     async preprocessData() {
-        console.log('Preprocessing data...');
-        this.showStatus('⚙️ Preprocessing data...', 'info');
+        console.log('Calculating returns and preparing dataset...');
+        this.showStatus('⚙️ Calculating S&P 500 returns...', 'info');
+        
+        const preprocessBtn = document.getElementById('preprocessBtn');
+        const loader = document.getElementById('preprocessLoader');
+        
+        preprocessBtn.disabled = true;
+        preprocessBtn.innerHTML = '⏳ Calculating...';
+        if (loader) loader.style.display = 'inline-block';
         
         try {
-            this.dataLoader.normalizeData();
-            this.dataLoader.prepareDataset();
+            const data = this.dataLoader.getPriceData();
+            const prices = data.map(d => d.price);
             
-            this.showStatus('✅ Data preprocessed!', 'success');
+            // Подготавливаем данные для модели
+            this.trainingData = this.gruModel.prepareData(prices);
+            
+            // Строим модель
+            this.gruModel.buildModel();
+            
+            this.showStatus('✅ Returns calculated and model built!', 'success');
+            this.showStatus(`📊 Lookback: ${this.gruModel.lookback} days, Horizon: ${this.gruModel.forecastHorizon} days`, 'info');
             
             // Активируем кнопку тренировки
             document.getElementById('trainBtn').disabled = false;
@@ -181,119 +264,161 @@ class StockPredictorApp {
             
         } catch (error) {
             this.showStatus(`❌ ${error.message}`, 'error');
+        } finally {
+            preprocessBtn.disabled = false;
+            preprocessBtn.innerHTML = '⚙️ Calculate Returns';
+            if (loader) loader.style.display = 'none';
         }
     }
     
     async trainModel() {
-        console.log('Training model...');
-        this.showStatus('🧠 Training model...', 'info');
+        console.log('Training GRU model for returns prediction...');
+        this.showStatus('🧠 Training GRU model on S&P 500 returns...', 'info');
         
-        setTimeout(() => {
-            this.showStatus('✅ Model trained!', 'success');
+        const trainBtn = document.getElementById('trainBtn');
+        const loader = document.getElementById('trainLoader');
+        
+        trainBtn.disabled = true;
+        trainBtn.innerHTML = '⏳ Training...';
+        if (loader) loader.style.display = 'inline-block';
+        
+        try {
+            // 1. Walk-forward CV (как в коллабе)
+            this.showStatus('📊 Running walk-forward cross-validation...', 'info');
+            
+            const X_train_val = tf.concat([this.trainingData.X_train, this.trainingData.X_val], 0);
+            const y_train_val = tf.concat([this.trainingData.y_train, this.trainingData.y_val], 0);
+            
+            const cvResults = await this.gruModel.walkForwardCV(
+                X_train_val, 
+                y_train_val, 
+                4,  // n_folds
+                15  // epochs
+            );
+            
+            // 2. Финальное обучение (как в коллабе)
+            this.showStatus('🎯 Final model training...', 'info');
+            
+            const history = await this.gruModel.train(
+                X_train_val,
+                y_train_val,
+                this.trainingData.X_test,
+                this.trainingData.y_test,
+                (epoch, metrics, totalEpochs) => {
+                    this.updateTrainingChart(epoch, metrics, totalEpochs);
+                    this.updateProgress(
+                        Math.min(95, (epoch / totalEpochs) * 100),
+                        `Epoch ${epoch}/${totalEpochs} - Loss: ${metrics.loss.toFixed(6)}`
+                    );
+                }
+            );
+            
+            // 3. Оценка модели
+            this.showStatus('📈 Evaluating model on test set...', 'info');
+            
+            const data = this.dataLoader.getPriceData();
+            const prices = data.map(d => d.price);
+            const dates = data.map(d => d.date);
+            
+            const evaluation = this.gruModel.evaluate(
+                this.trainingData.X_test,
+                this.trainingData.y_test,
+                prices,
+                dates
+            );
+            
+            // 4. Обновляем метрики
+            this.updateMetrics(evaluation);
+            
+            // 5. Обновляем график предсказаний
+            this.updatePredictionChart(evaluation);
+            
+            this.showStatus('✅ GRU model trained successfully!', 'success');
+            this.showStatus(`📊 Test RMSE (returns): ${evaluation.rmseReturns}, Direction Accuracy: ${evaluation.directionAccuracy}`, 'info');
             
             // Активируем кнопку предсказаний
             document.getElementById('predictBtn').disabled = false;
             document.getElementById('predictBtn').innerHTML = '🔮 Predict Next 5 Days';
             
-            // Обновляем метрики (тестовые значения)
-            document.getElementById('trainLoss').textContent = '0.1234';
-            document.getElementById('valLoss').textContent = '0.1456';
-            document.getElementById('rmse').textContent = '0.2345';
-            document.getElementById('accuracy').textContent = '67.5%';
-        }, 2000);
+        } catch (error) {
+            console.error('💥 Ошибка при обучении:', error);
+            this.showStatus(`❌ Training error: ${error.message}`, 'error');
+        } finally {
+            trainBtn.disabled = false;
+            trainBtn.innerHTML = '🧠 Train GRU Model';
+            if (loader) loader.style.display = 'none';
+            this.updateProgress(100, '✅ Training complete!');
+        }
+    }
+    
+    updateTrainingChart(epoch, metrics, totalEpochs) {
+        if (!this.trainingChart) return;
+        
+        // Добавляем данные
+        const labels = Array.from({length: epoch}, (_, i) => i + 1);
+        
+        // Если это первый epoch, инициализируем
+        if (epoch === 1) {
+            this.trainingChart.data.labels = labels;
+            this.trainingChart.data.datasets[0].data = [metrics.loss];
+            this.trainingChart.data.datasets[1].data = [metrics.val_loss];
+        } else {
+            this.trainingChart.data.labels.push(epoch);
+            this.trainingChart.data.datasets[0].data.push(metrics.loss);
+            this.trainingChart.data.datasets[1].data.push(metrics.val_loss);
+        }
+        
+        this.trainingChart.update();
+    }
+    
+    updateMetrics(evaluation) {
+        document.getElementById('trainLoss').textContent = 
+            this.gruModel.trainingLosses.length > 0 
+                ? this.gruModel.trainingLosses[this.gruModel.trainingLosses.length - 1].toFixed(6)
+                : '-';
+        
+        document.getElementById('valLoss').textContent = 
+            this.gruModel.validationLosses.length > 0 
+                ? this.gruModel.validationLosses[this.gruModel.validationLosses.length - 1].toFixed(6)
+                : '-';
+        
+        document.getElementById('rmse').textContent = evaluation.rmseReturns;
+        document.getElementById('accuracy').textContent = evaluation.directionAccuracy;
+    }
+    
+    updatePredictionChart(evaluation) {
+        if (!evaluation.predictions) return;
+        
+        const { trueReturns, predReturns } = evaluation.predictions;
+        
+        // Берем только последние 50 точек для графика
+        const startIdx = Math.max(0, trueReturns.length - 50);
+        const labels = Array.from({length: Math.min(50, trueReturns.length)}, (_, i) => i + 1);
+        
+        this.predictionChart.data.labels = labels;
+        this.predictionChart.data.datasets[0].data = trueReturns.slice(startIdx);
+        this.predictionChart.data.datasets[1].data = predReturns.slice(startIdx);
+        
+        this.predictionChart.update();
     }
     
     async makePredictions() {
-        console.log('Making predictions...');
-        this.showStatus('🔮 Making predictions...', 'info');
+        console.log('Making 5-day returns predictions...');
+        this.showStatus('🔮 Predicting next 5-day returns...', 'info');
         
-        setTimeout(() => {
-            const predictions = [
-                { day: 1, direction: 'UP', probability: 0.72 },
-                { day: 2, direction: 'DOWN', probability: 0.41 },
-                { day: 3, direction: 'UP', probability: 0.68 },
-                { day: 4, direction: 'UP', probability: 0.79 },
-                { day: 5, direction: 'DOWN', probability: 0.35 }
-            ];
+        const predictBtn = document.getElementById('predictBtn');
+        
+        predictBtn.disabled = true;
+        predictBtn.innerHTML = '⏳ Predicting...';
+        
+        try {
+            const data = this.dataLoader.getPriceData();
+            const prices = data.map(d => d.price);
             
+            // Получаем предсказания на 5 дней
+            const predictions = this.gruModel.predictSequence(prices, 5);
+            
+            // Обновляем отображение
             this.updatePredictionsDisplay(predictions);
-            this.showStatus('✅ Predictions ready!', 'success');
-        }, 1000);
-    }
-    
-    updatePredictionsDisplay(predictions) {
-        const grid = document.getElementById('predictionGrid');
-        
-        predictions.forEach(pred => {
-            const dayElement = grid.querySelector(`.prediction-day:nth-child(${pred.day})`);
-            if (dayElement) {
-                dayElement.querySelector('.prediction-value').textContent = pred.direction;
-                dayElement.querySelector('.prediction-value').className = `prediction-value ${pred.direction.toLowerCase()}`;
-                dayElement.querySelector('.prediction-confidence').textContent = 
-                    `Confidence: ${(pred.probability * 100).toFixed(1)}%`;
-            }
-        });
-    }
-    
-    updateProgress(percent, text) {
-        const fill = document.getElementById('progressFill');
-        const textElem = document.getElementById('progressText');
-        
-        if (fill) fill.style.width = `${percent}%`;
-        if (textElem) textElem.textContent = text;
-        
-        console.log(`📊 Прогресс: ${percent}% - ${text}`);
-    }
-    
-    showStatus(message, type = 'info') {
-        console.log(`📢 Статус: ${message}`);
-        
-        const container = document.getElementById('statusContainer');
-        if (!container) {
-            console.warn('statusContainer не найден');
-            return;
-        }
-        
-        const status = document.createElement('div');
-        status.className = `status ${type} active`;
-        status.textContent = message;
-        
-        // Удаляем старые статусы
-        const oldStatuses = container.querySelectorAll('.status');
-        oldStatuses.forEach(s => {
-            if (s !== status) s.remove();
-        });
-        
-        container.appendChild(status);
-        
-        // Автоудаление через 5 секунд
-        setTimeout(() => {
-            if (status.parentNode) {
-                status.classList.remove('active');
-                setTimeout(() => status.remove(), 300);
-            }
-        }, 5000);
-    }
-}
-
-// Запускаем приложение
-console.log('🚀 Запускаем приложение...');
-
-// Проверяем, что DOM загружен
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log('📄 DOM загружен, создаем приложение...');
-        window.app = new StockPredictorApp();
-    });
-} else {
-    console.log('📄 DOM уже загружен, создаем приложение...');
-    window.app = new StockPredictorApp();
-}
-
-// Добавляем глобальную отладочную функцию
-window.debugApp = function() {
-    console.log('=== ОТЛАДКА ПРИЛОЖЕНИЯ ===');
-    console.log('Кнопка найдена:', !!document.getElementById('refreshDataBtn'));
-    console.log('Загрузчик данных:', window.app ? window.app.dataLoader : 'не создан');
-    console.log('=== КОНЕЦ ОТЛАДКИ ===');
-};
+            
+            this.showStatus('✅ 5-day
