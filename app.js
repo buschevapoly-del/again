@@ -1,236 +1,438 @@
-// app.js - УПРОЩЕННАЯ ВЕРСИЯ
+// app.js - MAIN APPLICATION
 import { DataLoader } from './data-loader.js';
 import { GRUModel } from './gru.js';
 
+console.log('🚀 Starting Stock Predictor App...');
+
+// Глобальные переменные
+let app = null;
+let priceChart = null;
+let trainingChart = null;
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📄 DOM loaded, initializing app...');
+    
+    app = new StockPredictorApp();
+    
+    // Глобальная функция для отладки
+    window.debugApp = function() {
+        console.log('=== DEBUG ===');
+        console.log('App:', app);
+        console.log('DataLoader:', app.dataLoader);
+        console.log('GRU Model:', app.gruModel);
+        console.log('=== END DEBUG ===');
+    };
+    
+    console.log('✅ App initialized successfully');
+});
+
 class StockPredictorApp {
     constructor() {
-        console.log('📱 Stock Predictor App starting...');
+        console.log('📱 Creating StockPredictorApp...');
+        
         this.dataLoader = new DataLoader();
-        this.model = null;
+        this.gruModel = new GRUModel();
+        this.isProcessing = false;
+        
         this.setupCharts();
         this.setupEventListeners();
-        console.log('✅ App ready. Click "Load Data from GitHub"');
+        this.showStatus('✅ App ready! Click "Load Data from GitHub"', 'info');
     }
     
     setupCharts() {
-        // Просто инициализируем пустые графики
-        this.historyChart = this.createChart('historyChart', 'S&P 500 Price History', 'line');
-        this.trainingChart = this.createChart('trainingChart', 'Training Loss', 'line');
-        this.predictionChart = this.createChart('predictionChart', 'Predictions', 'bar');
-    }
-    
-    createChart(canvasId, label, type) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        return new Chart(ctx, {
-            type: type,
+        console.log('📊 Setting up charts...');
+        
+        // Price Chart
+        const priceCtx = document.getElementById('priceChart');
+        if (!priceCtx) {
+            console.error('❌ priceChart canvas not found!');
+            return;
+        }
+        
+        priceChart = new Chart(priceCtx.getContext('2d'), {
+            type: 'line',
             data: {
                 labels: [],
                 datasets: [{
-                    label: label,
+                    label: 'S&P 500 Price',
                     data: [],
                     borderColor: '#ff007a',
-                    backgroundColor: type === 'bar' ? '#ff007a' : 'rgba(255,0,122,0.1)',
-                    fill: type === 'line'
+                    backgroundColor: 'rgba(255, 0, 122, 0.1)',
+                    fill: true,
+                    tension: 0.4
                 }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true }
+                }
+            }
+        });
+        
+        // Training Chart
+        const trainingCtx = document.getElementById('trainingChart');
+        if (!trainingCtx) {
+            console.error('❌ trainingChart canvas not found!');
+            return;
+        }
+        
+        trainingChart = new Chart(trainingCtx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Training Loss',
+                        data: [],
+                        borderColor: '#ff007a',
+                        backgroundColor: 'rgba(255, 0, 122, 0.1)',
+                        fill: true
+                    },
+                    {
+                        label: 'Validation Loss',
+                        data: [],
+                        borderColor: '#00aaff',
+                        backgroundColor: 'rgba(0, 170, 255, 0.1)',
+                        fill: true
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false
             }
         });
+        
+        console.log('✅ Charts setup complete');
     }
     
     setupEventListeners() {
         console.log('🔗 Setting up event listeners...');
         
-        // Основная кнопка загрузки
-        const loadBtn = document.getElementById('refreshDataBtn');
+        const loadBtn = document.getElementById('loadBtn');
+        const preprocessBtn = document.getElementById('preprocessBtn');
+        const trainBtn = document.getElementById('trainBtn');
+        const predictBtn = document.getElementById('predictBtn');
+        
         if (!loadBtn) {
-            console.error('❌ Кнопка refreshDataBtn не найдена!');
+            console.error('❌ loadBtn not found!');
             return;
         }
         
+        // Load Button
         loadBtn.addEventListener('click', () => {
-            console.log('🎯 Кнопка нажата! Запускаем loadData()');
+            console.log('🎯 Load button clicked!');
             this.loadData();
         });
         
-        // Другие кнопки
-        document.getElementById('preprocessBtn').addEventListener('click', () => this.preprocessData());
-        document.getElementById('trainBtn').addEventListener('click', () => this.trainModel());
-        document.getElementById('predictBtn').addEventListener('click', () => this.makePredictions());
+        // Preprocess Button
+        preprocessBtn.addEventListener('click', () => {
+            console.log('⚙️ Preprocess button clicked!');
+            this.prepareData();
+        });
         
-        console.log('✅ Event listeners установлены');
+        // Train Button
+        trainBtn.addEventListener('click', () => {
+            console.log('🧠 Train button clicked!');
+            this.trainModel();
+        });
+        
+        // Predict Button
+        predictBtn.addEventListener('click', () => {
+            console.log('🔮 Predict button clicked!');
+            this.makePredictions();
+        });
+        
+        console.log('✅ Event listeners setup complete');
     }
     
     async loadData() {
-        console.log('🚀 ЗАПУСК loadData()');
+        if (this.isProcessing) {
+            console.log('⚠️ Already processing');
+            return;
+        }
         
-        // Показываем, что процесс начался
+        this.isProcessing = true;
+        this.showLoader('loadLoader', true);
         this.showStatus('⏳ Loading data from GitHub...', 'info');
-        this.updateProgress(10, 'Starting...');
+        this.updateProgress(10, 'Connecting...');
         
-        const loadBtn = document.getElementById('refreshDataBtn');
-        const loader = document.getElementById('refreshLoader');
-        
-        // Блокируем кнопку и показываем лоадер
+        const loadBtn = document.getElementById('loadBtn');
         loadBtn.disabled = true;
         loadBtn.innerHTML = '⏳ Loading...';
-        if (loader) loader.style.display = 'inline-block';
         
         try {
-            this.updateProgress(30, 'Fetching CSV...');
+            this.updateProgress(30, 'Downloading CSV...');
             
-            // Загружаем данные
-            const data = await this.dataLoader.fetchYahooFinanceData();
+            // Load data
+            const data = await this.dataLoader.loadData();
             
             this.updateProgress(70, 'Processing data...');
             
-            // Обновляем информацию о файле
-            this.updateFileInfo(data);
+            // Update stats
+            this.updateStats();
             
-            // Обновляем график
-            this.updateHistoryChart();
+            // Update chart
+            this.updatePriceChart();
             
             this.updateProgress(100, '✅ Data loaded!');
             this.showStatus('✅ Data loaded successfully!', 'success');
             
-            // Активируем кнопку предобработки
-            document.getElementById('preprocessBtn').disabled = false;
-            document.getElementById('preprocessBtn').innerHTML = '⚙️ Preprocess Data';
+            // Enable preprocess button
+            const preprocessBtn = document.getElementById('preprocessBtn');
+            preprocessBtn.disabled = false;
+            preprocessBtn.innerHTML = '⚙️ 2. Prepare Data';
             
-            console.log('🎉 Данные загружены:', data);
+            console.log('🎉 Data load complete');
             
         } catch (error) {
-            console.error('💥 Ошибка при загрузке:', error);
+            console.error('💥 Load error:', error);
             this.showStatus(`❌ Error: ${error.message}`, 'error');
-            this.updateProgress(0, `Error: ${error.message}`);
         } finally {
-            // Восстанавливаем кнопку
+            this.isProcessing = false;
+            this.showLoader('loadLoader', false);
             loadBtn.disabled = false;
-            loadBtn.innerHTML = '📥 Load Data from GitHub';
-            if (loader) loader.style.display = 'none';
+            loadBtn.innerHTML = '📥 1. Load Data from GitHub';
         }
     }
     
-    updateFileInfo(data) {
-        const fileInfo = document.getElementById('fileInfo');
-        if (!fileInfo) return;
+    async prepareData() {
+        if (this.isProcessing) return;
         
-        const stats = this.dataLoader.getStatistics();
-        
-        fileInfo.classList.add('active');
-        fileInfo.innerHTML = `
-            <div style="text-align: center;">
-                <h4 style="color: #ff007a;">${stats.symbol}</h4>
-                <p>${stats.dateRange}</p>
-            </div>
-            <div class="info-grid">
-                <div class="info-item">
-                    <strong>Data Points</strong>
-                    <div>${stats.rows}</div>
-                </div>
-                <div class="info-item">
-                    <strong>Current Price</strong>
-                    <div>${stats.currentPrice}</div>
-                </div>
-                <div class="info-item">
-                    <strong>Price Range</strong>
-                    <div>${stats.priceRange}</div>
-                </div>
-            </div>
-        `;
-    }
-    
-    updateHistoryChart() {
-        const priceData = this.dataLoader.getPriceData();
-        
-        if (priceData && priceData.length > 0) {
-            // Берем только каждую 10-ю точку для графика
-            const step = Math.ceil(priceData.length / 50);
-            const displayData = [];
-            
-            for (let i = 0; i < priceData.length; i += step) {
-                displayData.push(priceData[i]);
-            }
-            
-            const labels = displayData.map(d => d.date);
-            const prices = displayData.map(d => d.price);
-            
-            this.historyChart.data.labels = labels;
-            this.historyChart.data.datasets[0].data = prices;
-            this.historyChart.update();
-            
-            console.log('📊 График обновлен с', prices.length, 'точками');
-        }
-    }
-    
-    async preprocessData() {
-        console.log('Preprocessing data...');
-        this.showStatus('⚙️ Preprocessing data...', 'info');
+        this.isProcessing = true;
+        this.showLoader('preprocessLoader', true);
+        this.showStatus('⚙️ Preparing data for training...', 'info');
+        this.updateProgress(0, 'Creating sequences...');
         
         try {
-            this.dataLoader.normalizeData();
-            this.dataLoader.prepareDataset();
+            this.updateProgress(50, 'Creating training sequences...');
             
-            this.showStatus('✅ Data preprocessed!', 'success');
+            // Prepare data for GRU
+            const dataset = this.dataLoader.prepareForTraining(60, 5);
             
-            // Активируем кнопку тренировки
-            document.getElementById('trainBtn').disabled = false;
-            document.getElementById('trainBtn').innerHTML = '🧠 Train GRU Model';
+            this.updateProgress(100, '✅ Data ready!');
+            this.showStatus('✅ Data prepared for GRU training!', 'success');
+            
+            // Enable train button
+            const trainBtn = document.getElementById('trainBtn');
+            trainBtn.disabled = false;
+            trainBtn.innerHTML = '🧠 3. Train GRU Model';
+            
+            console.log('📊 Dataset prepared');
             
         } catch (error) {
-            this.showStatus(`❌ ${error.message}`, 'error');
+            console.error('💥 Prep error:', error);
+            this.showStatus(`❌ Error: ${error.message}`, 'error');
+        } finally {
+            this.isProcessing = false;
+            this.showLoader('preprocessLoader', false);
         }
     }
     
     async trainModel() {
-        console.log('Training model...');
-        this.showStatus('🧠 Training model...', 'info');
+        if (this.isProcessing) return;
         
-        setTimeout(() => {
-            this.showStatus('✅ Model trained!', 'success');
+        this.isProcessing = true;
+        this.showLoader('trainLoader', true);
+        this.showStatus('🧠 Training GRU model... This may take 30-60 seconds', 'info');
+        this.updateProgress(0, 'Building model...');
+        
+        try {
+            this.updateProgress(10, 'Building GRU model...');
             
-            // Активируем кнопку предсказаний
-            document.getElementById('predictBtn').disabled = false;
-            document.getElementById('predictBtn').innerHTML = '🔮 Predict Next 5 Days';
+            // Build model
+            this.gruModel.buildModel([1, 60]);
             
-            // Обновляем метрики (тестовые значения)
-            document.getElementById('trainLoss').textContent = '0.1234';
-            document.getElementById('valLoss').textContent = '0.1456';
-            document.getElementById('rmse').textContent = '0.2345';
-            document.getElementById('accuracy').textContent = '67.5%';
-        }, 2000);
+            // Get data
+            const X_train = this.dataLoader.X_train;
+            const y_train = this.dataLoader.y_train;
+            const X_test = this.dataLoader.X_test;
+            const y_test = this.dataLoader.y_test;
+            
+            if (!X_train || !y_train) {
+                throw new Error('Data not prepared. Click "Prepare Data" first.');
+            }
+            
+            // Split test data for validation
+            const valSplit = Math.floor(X_train.shape[0] * 0.8);
+            const X_val = X_train.slice([valSplit, 0, 0], [X_train.shape[0] - valSplit, 1, 60]);
+            const y_val = y_train.slice([valSplit, 0], [y_train.shape[0] - valSplit, 1]);
+            const X_train_sub = X_train.slice([0, 0, 0], [valSplit, 1, 60]);
+            const y_train_sub = y_train.slice([0, 0], [valSplit, 1]);
+            
+            this.updateProgress(20, 'Starting training...');
+            
+            // Train model
+            const history = await this.gruModel.train(
+                X_train_sub, y_train_sub, X_val, y_val,
+                (epoch, totalEpochs, trainLoss, valLoss) => {
+                    const progress = 20 + (epoch / totalEpochs) * 70;
+                    this.updateProgress(progress, `Epoch ${epoch}/${totalEpochs} - Loss: ${trainLoss.toFixed(6)}`);
+                    
+                    // Update training chart
+                    this.updateTrainingChart(epoch, trainLoss, valLoss);
+                    
+                    // Update metrics
+                    if (epoch % 5 === 0) {
+                        this.updateMetrics(trainLoss, valLoss);
+                    }
+                }
+            );
+            
+            // Evaluate on test set
+            this.updateProgress(95, 'Evaluating model...');
+            const evalResult = this.gruModel.evaluate(X_test, y_test);
+            
+            // Update final metrics
+            this.updateFinalMetrics(evalResult);
+            
+            this.updateProgress(100, '✅ Training complete!');
+            this.showStatus('✅ GRU model trained successfully!', 'success');
+            
+            // Enable predict button
+            const predictBtn = document.getElementById('predictBtn');
+            predictBtn.disabled = false;
+            predictBtn.innerHTML = '🔮 4. Predict Next 5 Days';
+            
+            console.log('🏆 Training complete:', evalResult);
+            
+        } catch (error) {
+            console.error('💥 Train error:', error);
+            this.showStatus(`❌ Training error: ${error.message}`, 'error');
+        } finally {
+            this.isProcessing = false;
+            this.showLoader('trainLoader', false);
+        }
     }
     
     async makePredictions() {
-        console.log('Making predictions...');
-        this.showStatus('🔮 Making predictions...', 'info');
+        if (this.isProcessing) return;
         
-        setTimeout(() => {
-            const predictions = [
-                { day: 1, direction: 'UP', probability: 0.72 },
-                { day: 2, direction: 'DOWN', probability: 0.41 },
-                { day: 3, direction: 'UP', probability: 0.68 },
-                { day: 4, direction: 'UP', probability: 0.79 },
-                { day: 5, direction: 'DOWN', probability: 0.35 }
-            ];
+        this.isProcessing = true;
+        this.showStatus('🔮 Making predictions for next 5 days...', 'info');
+        
+        try {
+            // Get latest sequence
+            const latest = this.dataLoader.getLatestSequence(60);
             
-            this.updatePredictionsDisplay(predictions);
-            this.showStatus('✅ Predictions ready!', 'success');
-        }, 1000);
+            // Make predictions
+            const predictions = this.gruModel.predictSequence(latest, 5);
+            
+            // Update UI
+            this.updatePredictions(predictions);
+            
+            this.showStatus('✅ Predictions generated!', 'success');
+            
+            console.log('📈 Predictions:', predictions);
+            
+            // Cleanup
+            latest.dispose();
+            
+        } catch (error) {
+            console.error('💥 Predict error:', error);
+            this.showStatus(`❌ Prediction error: ${error.message}`, 'error');
+        } finally {
+            this.isProcessing = false;
+        }
     }
     
-    updatePredictionsDisplay(predictions) {
-        const grid = document.getElementById('predictionGrid');
+    updatePriceChart() {
+        if (!priceChart) return;
         
-        predictions.forEach(pred => {
-            const dayElement = grid.querySelector(`.prediction-day:nth-child(${pred.day})`);
+        const chartData = this.dataLoader.getChartData(100);
+        
+        const labels = chartData.map(d => d.date);
+        const prices = chartData.map(d => d.price);
+        
+        priceChart.data.labels = labels;
+        priceChart.data.datasets[0].data = prices;
+        priceChart.update();
+        
+        console.log('📊 Price chart updated');
+    }
+    
+    updateTrainingChart(epoch, trainLoss, valLoss) {
+        if (!trainingChart) return;
+        
+        trainingChart.data.labels.push(`E${epoch}`);
+        trainingChart.data.datasets[0].data.push(trainLoss);
+        trainingChart.data.datasets[1].data.push(valLoss);
+        
+        // Limit to 50 points
+        if (trainingChart.data.labels.length > 50) {
+            trainingChart.data.labels.shift();
+            trainingChart.data.datasets[0].data.shift();
+            trainingChart.data.datasets[1].data.shift();
+        }
+        
+        trainingChart.update();
+    }
+    
+    updateMetrics(trainLoss, valLoss) {
+        const trainElem = document.getElementById('trainLoss');
+        const valElem = document.getElementById('valLoss');
+        
+        if (trainElem) trainElem.textContent = trainLoss.toFixed(6);
+        if (valElem) valElem.textContent = valLoss.toFixed(6);
+    }
+    
+    updateFinalMetrics(evalResult) {
+        const rmseElem = document.getElementById('rmse');
+        const accElem = document.getElementById('accuracy');
+        
+        if (rmseElem) rmseElem.textContent = evalResult.rmse;
+        if (accElem) accElem.textContent = evalResult.accuracy;
+    }
+    
+    updateStats() {
+        const stats = this.dataLoader.getStats();
+        const statsText = document.getElementById('statsText');
+        const fileInfo = document.getElementById('fileInfo');
+        
+        if (statsText) {
+            statsText.innerHTML = `
+                <div style="margin: 10px 0;">
+                    <strong>${stats.symbol}</strong><br>
+                    ${stats.points} data points<br>
+                    Current: ${stats.current}<br>
+                    Range: ${stats.min} - ${stats.max}<br>
+                    ${stats.dateRange}
+                </div>
+                ${stats.returns ? `
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <strong>Returns:</strong><br>
+                    Positive: ${stats.returns.positive} (${stats.returns.rate})<br>
+                    Avg Daily: ${stats.returns.avg}
+                </div>
+                ` : ''}
+            `;
+        }
+        
+        if (fileInfo) {
+            fileInfo.style.display = 'block';
+        }
+    }
+    
+    updatePredictions(predictions) {
+        const grid = document.getElementById('predictionGrid');
+        if (!grid) return;
+        
+        predictions.forEach((pred, i) => {
+            const dayElement = grid.querySelector(`.prediction-day:nth-child(${i + 1})`);
             if (dayElement) {
-                dayElement.querySelector('.prediction-value').textContent = pred.direction;
-                dayElement.querySelector('.prediction-value').className = `prediction-value ${pred.direction.toLowerCase()}`;
+                const returnPercent = (pred.value * 100).toFixed(3);
+                
+                dayElement.querySelector('.prediction-value').textContent = 
+                    `${pred.direction}`;
+                
+                dayElement.querySelector('.prediction-value').className = 
+                    `prediction-value ${pred.direction.toLowerCase()}`;
+                
                 dayElement.querySelector('.prediction-confidence').textContent = 
-                    `Confidence: ${(pred.probability * 100).toFixed(1)}%`;
+                    `Return: ${returnPercent}%`;
             }
         });
     }
@@ -242,15 +444,22 @@ class StockPredictorApp {
         if (fill) fill.style.width = `${percent}%`;
         if (textElem) textElem.textContent = text;
         
-        console.log(`📊 Прогресс: ${percent}% - ${text}`);
+        console.log(`📊 Progress: ${percent}% - ${text}`);
+    }
+    
+    showLoader(loaderId, show) {
+        const loader = document.getElementById(loaderId);
+        if (loader) {
+            loader.style.display = show ? 'inline-block' : 'none';
+        }
     }
     
     showStatus(message, type = 'info') {
-        console.log(`📢 Статус: ${message}`);
+        console.log(`📢 Status: ${message}`);
         
         const container = document.getElementById('statusContainer');
         if (!container) {
-            console.warn('statusContainer не найден');
+            console.warn('statusContainer not found');
             return;
         }
         
@@ -258,15 +467,13 @@ class StockPredictorApp {
         status.className = `status ${type} active`;
         status.textContent = message;
         
-        // Удаляем старые статусы
+        // Remove old statuses
         const oldStatuses = container.querySelectorAll('.status');
-        oldStatuses.forEach(s => {
-            if (s !== status) s.remove();
-        });
+        oldStatuses.forEach(s => s.remove());
         
         container.appendChild(status);
         
-        // Автоудаление через 5 секунд
+        // Auto-remove after 5 seconds
         setTimeout(() => {
             if (status.parentNode) {
                 status.classList.remove('active');
@@ -275,25 +482,3 @@ class StockPredictorApp {
         }, 5000);
     }
 }
-
-// Запускаем приложение
-console.log('🚀 Запускаем приложение...');
-
-// Проверяем, что DOM загружен
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log('📄 DOM загружен, создаем приложение...');
-        window.app = new StockPredictorApp();
-    });
-} else {
-    console.log('📄 DOM уже загружен, создаем приложение...');
-    window.app = new StockPredictorApp();
-}
-
-// Добавляем глобальную отладочную функцию
-window.debugApp = function() {
-    console.log('=== ОТЛАДКА ПРИЛОЖЕНИЯ ===');
-    console.log('Кнопка найдена:', !!document.getElementById('refreshDataBtn'));
-    console.log('Загрузчик данных:', window.app ? window.app.dataLoader : 'не создан');
-    console.log('=== КОНЕЦ ОТЛАДКИ ===');
-};
