@@ -8,6 +8,7 @@ class StockPredictorApp {
         this.dataLoader = new DataLoader();
         this.gruModel = new GRUModel();
         this.trainingData = null;
+        this.rawPrices = []; // Храним сырые цены
         this.setupCharts();
         this.setupEventListeners();
         console.log('✅ App ready. Click "Load Data from GitHub"');
@@ -16,6 +17,18 @@ class StockPredictorApp {
     setupCharts() {
         // График исторических данных
         this.historyChart = this.createChart('historyChart', 'S&P 500 Price History', 'line');
+        
+        // График доходностей
+        this.returnsChart = this.createChart('returnsChart', 'S&P 500 Daily Returns', 'line', {
+            datasets: [{
+                label: 'Daily Returns (%)',
+                data: [],
+                borderColor: '#00ff88',
+                backgroundColor: 'rgba(0,255,136,0.1)',
+                fill: true,
+                borderWidth: 1
+            }]
+        });
         
         // График обучения
         this.trainingChart = this.createChart('trainingChart', 'Training Loss', 'line', {
@@ -67,7 +80,8 @@ class StockPredictorApp {
                 data: [],
                 borderColor: '#ff007a',
                 backgroundColor: type === 'bar' ? '#ff007a' : 'rgba(255,0,122,0.1)',
-                fill: type === 'line'
+                fill: type === 'line',
+                borderWidth: 1
             }]
         };
         
@@ -80,6 +94,11 @@ class StockPredictorApp {
                 plugins: {
                     legend: {
                         display: true
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: false
                     }
                 }
             }
@@ -101,10 +120,11 @@ class StockPredictorApp {
             this.loadData();
         });
         
-        // Кнопка предобработки
-        document.getElementById('preprocessBtn').addEventListener('click', () => this.preprocessData());
+        // Кнопка предобработки - теперь "Calculate Returns"
+        const preprocessBtn = document.getElementById('preprocessBtn');
+        preprocessBtn.addEventListener('click', () => this.calculateReturns());
         
-        // Кнопка тренировки модели (главная задача)
+        // Кнопка тренировки модели
         document.getElementById('trainBtn').addEventListener('click', () => this.trainModel());
         
         // Кнопка предсказаний
@@ -116,14 +136,12 @@ class StockPredictorApp {
     async loadData() {
         console.log('🚀 ЗАПУСК loadData()');
         
-        // Показываем, что процесс начался
         this.showStatus('⏳ Loading S&P 500 data from GitHub...', 'info');
         this.updateProgress(10, 'Starting...');
         
         const loadBtn = document.getElementById('refreshDataBtn');
         const loader = document.getElementById('refreshLoader');
         
-        // Блокируем кнопку и показываем лоадер
         loadBtn.disabled = true;
         loadBtn.innerHTML = '⏳ Loading...';
         if (loader) loader.style.display = 'inline-block';
@@ -136,27 +154,29 @@ class StockPredictorApp {
             
             this.updateProgress(70, 'Processing price data...');
             
+            // Сохраняем сырые цены
+            this.rawPrices = data.prices;
+            
             // Обновляем информацию о файле
             this.updateFileInfo(data);
             
-            // Обновляем график
-            this.updateHistoryChart(data);
+            // Обновляем график цен
+            this.updateHistoryChart();
             
             this.updateProgress(100, '✅ Data loaded!');
             this.showStatus('✅ S&P 500 data loaded successfully!', 'success');
             
-            // Активируем кнопку предобработки
+            // Меняем текст кнопки на "Calculate Returns"
             document.getElementById('preprocessBtn').disabled = false;
-            document.getElementById('preprocessBtn').innerHTML = '⚙️ Calculate Returns';
+            document.getElementById('preprocessBtn').innerHTML = '📊 Calculate Returns';
             
-            console.log('🎉 Данные загружены:', data.prices.length, 'price points');
+            console.log('🎉 Данные загружены:', this.rawPrices.length, 'price points');
             
         } catch (error) {
             console.error('💥 Ошибка при загрузке:', error);
             this.showStatus(`❌ Error: ${error.message}`, 'error');
             this.updateProgress(0, `Error: ${error.message}`);
         } finally {
-            // Восстанавливаем кнопку
             loadBtn.disabled = false;
             loadBtn.innerHTML = '📥 Load Data from GitHub';
             if (loader) loader.style.display = 'none';
@@ -189,39 +209,20 @@ class StockPredictorApp {
                     <div>${stats.priceRange}</div>
                 </div>
                 <div class="info-item">
-                    <strong>Volatility</strong>
-                    <div>${this.calculateVolatility(data.prices)}%</div>
+                    <strong>Annual Volatility</strong>
+                    <div>${stats.volatility}</div>
                 </div>
             </div>
         `;
     }
     
-    calculateVolatility(prices) {
-        if (!prices || prices.length < 2) return '0.00';
-        
-        let returns = [];
-        for (let i = 1; i < prices.length; i++) {
-            returns.push(Math.log(prices[i] / prices[i-1]));
-        }
-        
-        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / returns.length;
-        const annualVolatility = Math.sqrt(variance * 252) * 100;
-        
-        return annualVolatility.toFixed(2);
-    }
-    
-    updateHistoryChart(data) {
+    updateHistoryChart() {
         const priceData = this.dataLoader.getPriceData();
         
         if (priceData && priceData.length > 0) {
-            // Берем только каждую 10-ю точку для графика
-            const step = Math.ceil(priceData.length / 100);
-            const displayData = [];
-            
-            for (let i = 0; i < priceData.length; i += step) {
-                displayData.push(priceData[i]);
-            }
+            // Берем только последние 200 точек для графика
+            const startIdx = Math.max(0, priceData.length - 200);
+            const displayData = priceData.slice(startIdx);
             
             const labels = displayData.map(d => d.date);
             const prices = displayData.map(d => d.price);
@@ -230,13 +231,30 @@ class StockPredictorApp {
             this.historyChart.data.datasets[0].data = prices;
             this.historyChart.update();
             
-            console.log('📊 График обновлен с', prices.length, 'точками');
+            console.log('📊 График цен обновлен с', prices.length, 'точками');
         }
     }
     
-    async preprocessData() {
-        console.log('Calculating returns and preparing dataset...');
-        this.showStatus('⚙️ Calculating S&P 500 returns...', 'info');
+    updateReturnsChart(returnsData) {
+        if (!returnsData || returnsData.length === 0) return;
+        
+        // Берем только последние 200 точек для графика
+        const startIdx = Math.max(0, returnsData.length - 200);
+        const displayData = returnsData.slice(startIdx);
+        
+        const labels = displayData.map(r => r.date);
+        const returns = displayData.map(r => r.simpleReturnPercent);
+        
+        this.returnsChart.data.labels = labels;
+        this.returnsChart.data.datasets[0].data = returns;
+        this.returnsChart.update();
+        
+        console.log('📊 График доходностей обновлен с', returns.length, 'точками');
+    }
+    
+    async calculateReturns() {
+        console.log('Calculating returns...');
+        this.showStatus('📊 Calculating S&P 500 returns...', 'info');
         
         const preprocessBtn = document.getElementById('preprocessBtn');
         const loader = document.getElementById('preprocessLoader');
@@ -246,59 +264,92 @@ class StockPredictorApp {
         if (loader) loader.style.display = 'inline-block';
         
         try {
-            const data = this.dataLoader.getPriceData();
-            const prices = data.map(d => d.price);
+            // 1. Рассчитываем доходности
+            const returnsData = this.dataLoader.calculateReturns();
             
-            // Подготавливаем данные для модели
-            this.trainingData = this.gruModel.prepareData(prices);
+            // 2. Обновляем график доходностей
+            this.updateReturnsChart(returnsData);
             
-            // Строим модель
-            this.gruModel.buildModel();
+            // 3. Нормализуем данные
+            this.dataLoader.normalizeData();
             
-            this.showStatus('✅ Returns calculated and model built!', 'success');
-            this.showStatus(`📊 Lookback: ${this.gruModel.lookback} days, Horizon: ${this.gruModel.forecastHorizon} days`, 'info');
+            // 4. Получаем нормализованные данные для информации
+            const normalizedData = this.dataLoader.normalizedData;
             
-            // Активируем кнопку тренировки
+            this.showStatus('✅ Returns calculated successfully!', 'success');
+            this.showStatus(
+                `📈 Mean daily return: ${(normalizedData.mean * 100).toFixed(4)}%, ` +
+                `Std: ${(normalizedData.std * 100).toFixed(4)}%`, 
+                'info'
+            );
+            
+            // 5. Активируем кнопку подготовки данных для GRU
             document.getElementById('trainBtn').disabled = false;
-            document.getElementById('trainBtn').innerHTML = '🧠 Train GRU Model';
+            document.getElementById('trainBtn').innerHTML = '🧠 Prepare & Train GRU Model';
+            
+            // Меняем текст кнопки
+            preprocessBtn.innerHTML = '✅ Returns Calculated';
+            
+            console.log('🎉 Returns calculated:', returnsData.length, 'data points');
             
         } catch (error) {
-            this.showStatus(`❌ ${error.message}`, 'error');
+            console.error('💥 Ошибка при расчете доходностей:', error);
+            this.showStatus(`❌ Error calculating returns: ${error.message}`, 'error');
+            preprocessBtn.innerHTML = '📊 Calculate Returns';
         } finally {
             preprocessBtn.disabled = false;
-            preprocessBtn.innerHTML = '⚙️ Calculate Returns';
             if (loader) loader.style.display = 'none';
         }
     }
     
     async trainModel() {
-        console.log('Training GRU model for returns prediction...');
-        this.showStatus('🧠 Training GRU model on S&P 500 returns...', 'info');
+        console.log('Preparing data and training GRU model...');
+        this.showStatus('🧠 Preparing data for GRU model...', 'info');
         
         const trainBtn = document.getElementById('trainBtn');
         const loader = document.getElementById('trainLoader');
         
         trainBtn.disabled = true;
-        trainBtn.innerHTML = '⏳ Training...';
+        trainBtn.innerHTML = '⏳ Preparing Data...';
         if (loader) loader.style.display = 'inline-block';
         
         try {
-            // 1. Walk-forward CV (как в коллабе)
-            this.showStatus('📊 Running walk-forward cross-validation...', 'info');
+            this.updateProgress(10, 'Getting price data...');
             
+            // ВАЖНО: Получаем СЫРЫЕ ЦЕНЫ как массив чисел
+            const prices = this.dataLoader.getPricesArray();
+            
+            if (!prices || prices.length < 100) {
+                throw new Error(`Not enough data. Need at least 100 price points, got ${prices?.length || 0}`);
+            }
+            
+            this.updateProgress(30, 'Preparing sequences for GRU...');
+            
+            // Подготавливаем данные для GRU модели
+            // Передаем МАССИВ ЧИСЕЛ, а не объект
+            this.trainingData = this.gruModel.prepareData(prices);
+            
+            this.updateProgress(50, 'Building GRU model...');
+            
+            // Строим модель
+            this.gruModel.buildModel();
+            
+            this.updateProgress(70, 'Running walk-forward validation...');
+            
+            // Walk-forward CV
             const X_train_val = tf.concat([this.trainingData.X_train, this.trainingData.X_val], 0);
             const y_train_val = tf.concat([this.trainingData.y_train, this.trainingData.y_val], 0);
             
             const cvResults = await this.gruModel.walkForwardCV(
                 X_train_val, 
                 y_train_val, 
-                4,  // n_folds
-                15  // epochs
+                3,  // n_folds (меньше для скорости)
+                10  // epochs per fold
             );
             
-            // 2. Финальное обучение (как в коллабе)
-            this.showStatus('🎯 Final model training...', 'info');
+            this.updateProgress(85, 'Final model training...');
             
+            // Финальное обучение
             const history = await this.gruModel.train(
                 X_train_val,
                 y_train_val,
@@ -307,45 +358,47 @@ class StockPredictorApp {
                 (epoch, metrics, totalEpochs) => {
                     this.updateTrainingChart(epoch, metrics, totalEpochs);
                     this.updateProgress(
-                        Math.min(95, (epoch / totalEpochs) * 100),
+                        85 + (epoch / totalEpochs) * 10,
                         `Epoch ${epoch}/${totalEpochs} - Loss: ${metrics.loss.toFixed(6)}`
                     );
                 }
             );
             
-            // 3. Оценка модели
-            this.showStatus('📈 Evaluating model on test set...', 'info');
+            this.updateProgress(95, 'Evaluating model...');
             
-            const data = this.dataLoader.getPriceData();
-            const prices = data.map(d => d.price);
-            const dates = data.map(d => d.date);
-            
+            // Оценка модели
             const evaluation = this.gruModel.evaluate(
                 this.trainingData.X_test,
                 this.trainingData.y_test,
                 prices,
-                dates
+                this.dataLoader.getDatesArray()
             );
             
-            // 4. Обновляем метрики
+            // Обновляем метрики
             this.updateMetrics(evaluation);
             
-            // 5. Обновляем график предсказаний
+            // Обновляем график предсказаний
             this.updatePredictionChart(evaluation);
             
             this.showStatus('✅ GRU model trained successfully!', 'success');
-            this.showStatus(`📊 Test RMSE (returns): ${evaluation.rmseReturns}, Direction Accuracy: ${evaluation.directionAccuracy}`, 'info');
+            this.showStatus(
+                `📊 Test RMSE (returns): ${evaluation.rmseReturns}, ` +
+                `Direction Accuracy: ${evaluation.directionAccuracy}`, 
+                'info'
+            );
             
             // Активируем кнопку предсказаний
             document.getElementById('predictBtn').disabled = false;
             document.getElementById('predictBtn').innerHTML = '🔮 Predict Next 5 Days';
             
+            trainBtn.innerHTML = '✅ Model Trained';
+            
         } catch (error) {
-            console.error('💥 Ошибка при обучении:', error);
+            console.error('💥 Ошибка при обучении модели:', error);
             this.showStatus(`❌ Training error: ${error.message}`, 'error');
+            trainBtn.innerHTML = '🧠 Prepare & Train GRU Model';
         } finally {
             trainBtn.disabled = false;
-            trainBtn.innerHTML = '🧠 Train GRU Model';
             if (loader) loader.style.display = 'none';
             this.updateProgress(100, '✅ Training complete!');
         }
@@ -354,12 +407,8 @@ class StockPredictorApp {
     updateTrainingChart(epoch, metrics, totalEpochs) {
         if (!this.trainingChart) return;
         
-        // Добавляем данные
-        const labels = Array.from({length: epoch}, (_, i) => i + 1);
-        
-        // Если это первый epoch, инициализируем
         if (epoch === 1) {
-            this.trainingChart.data.labels = labels;
+            this.trainingChart.data.labels = [1];
             this.trainingChart.data.datasets[0].data = [metrics.loss];
             this.trainingChart.data.datasets[1].data = [metrics.val_loss];
         } else {
@@ -391,9 +440,9 @@ class StockPredictorApp {
         
         const { trueReturns, predReturns } = evaluation.predictions;
         
-        // Берем только последние 50 точек для графика
-        const startIdx = Math.max(0, trueReturns.length - 50);
-        const labels = Array.from({length: Math.min(50, trueReturns.length)}, (_, i) => i + 1);
+        // Берем только последние 30 точек для графика
+        const startIdx = Math.max(0, trueReturns.length - 30);
+        const labels = Array.from({length: Math.min(30, trueReturns.length)}, (_, i) => `Test ${i + 1}`);
         
         this.predictionChart.data.labels = labels;
         this.predictionChart.data.datasets[0].data = trueReturns.slice(startIdx);
@@ -412,14 +461,17 @@ class StockPredictorApp {
         predictBtn.innerHTML = '⏳ Predicting...';
         
         try {
-            const data = this.dataLoader.getPriceData();
-            const prices = data.map(d => d.price);
+            const prices = this.dataLoader.getPricesArray();
+            
+            if (!prices || prices.length === 0) {
+                throw new Error('No price data available');
+            }
             
             // Получаем предсказания на 5 дней
             const predictions = this.gruModel.predictSequence(prices, 5);
             
             // Обновляем отображение
-            this.updatePredictionsDisplay(predictions);
+            this.updatePredictionsDisplay(predictions, prices[prices.length - 1]);
             
             this.showStatus('✅ 5-day returns predictions ready!', 'success');
             
@@ -432,19 +484,24 @@ class StockPredictorApp {
         }
     }
     
-    updatePredictionsDisplay(predictions) {
+    updatePredictionsDisplay(predictions, currentPrice) {
         const grid = document.getElementById('predictionGrid');
         
         predictions.forEach(pred => {
             const dayElement = grid.querySelector(`.prediction-day:nth-child(${pred.day})`);
             if (dayElement) {
-                // Отображаем доходность в процентах
+                // Рассчитываем прогнозируемую цену
+                const predictedPrice = currentPrice * Math.exp(pred.predictedReturn);
                 const returnPercent = (pred.predictedReturn * 100).toFixed(2);
+                
                 dayElement.querySelector('.prediction-value').textContent = 
                     `${pred.direction === 'UP' ? '+' : ''}${returnPercent}%`;
                 dayElement.querySelector('.prediction-value').className = `prediction-value ${pred.direction.toLowerCase()}`;
-                dayElement.querySelector('.prediction-confidence').textContent = 
-                    `Confidence: ${pred.confidence} | Annualized: ${(pred.annualizedReturn * 100).toFixed(2)}%`;
+                
+                dayElement.querySelector('.prediction-confidence').innerHTML = 
+                    `Confidence: ${pred.confidence}<br>` +
+                    `Price: $${predictedPrice.toFixed(2)}<br>` +
+                    `Annualized: ${(pred.annualizedReturn * 100).toFixed(2)}%`;
             }
         });
     }
@@ -453,7 +510,7 @@ class StockPredictorApp {
         const fill = document.getElementById('progressFill');
         const textElem = document.getElementById('progressText');
         
-        if (fill) fill.style.width = `${percent}%`;
+        if (fill) fill.style.width = `${Math.min(100, percent)}%`;
         if (textElem) textElem.textContent = text;
         
         console.log(`📊 Прогресс: ${percent}% - ${text}`);
