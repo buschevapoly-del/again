@@ -1,10 +1,10 @@
-// gru.js - SIMPLE GRU MODEL
-export class GRUModel {
+// gru.js
+class GRUModel {
     constructor() {
         console.log('✅ GRUModel created');
         this.model = null;
         this.isTrained = false;
-        this.lossHistory = [];
+        this.trainingHistory = [];
     }
 
     buildModel(inputShape) {
@@ -16,7 +16,7 @@ export class GRUModel {
         
         this.model = tf.sequential();
         
-        // GRU Layer
+        // Первый GRU слой
         this.model.add(tf.layers.gru({
             units: 64,
             inputShape: inputShape,
@@ -25,40 +25,40 @@ export class GRUModel {
         
         this.model.add(tf.layers.dropout({rate: 0.2}));
         
-        // Dense Layer
+        // Полносвязный слой
         this.model.add(tf.layers.dense({
             units: 32,
             activation: 'relu'
         }));
         
-        // Output Layer (single value prediction)
+        // Выходной слой (предсказание доходности)
         this.model.add(tf.layers.dense({
             units: 1
         }));
         
-        // Compile for regression
+        // Компиляция для регрессии
         this.model.compile({
             optimizer: tf.train.adam(0.001),
             loss: 'meanSquaredError',
             metrics: ['mse']
         });
         
-        console.log('✅ Model built');
+        console.log('✅ Model built successfully');
         return this.model;
     }
 
-    async train(X_train, y_train, X_val, y_val, onEpoch) {
+    async train(X_train, y_train, X_val, y_val, onEpochCallback) {
         if (!this.model) {
             throw new Error('Build model first');
         }
         
-        console.log('🎯 Starting training...');
-        this.lossHistory = [];
+        console.log('🎯 Starting model training...');
+        this.trainingHistory = [];
         
         const epochs = 30;
         
         for (let epoch = 0; epoch < epochs; epoch++) {
-            // Train one epoch
+            // Одна эпоха обучения
             const history = await this.model.fit(X_train, y_train, {
                 epochs: 1,
                 batchSize: 32,
@@ -68,25 +68,29 @@ export class GRUModel {
             
             const trainLoss = history.history.loss[0];
             
-            // Validation loss
+            // Валидация
             const valResults = this.model.evaluate(X_val, y_val, {verbose: 0});
             const valLoss = valResults[0].dataSync()[0];
             
-            this.lossHistory.push({ epoch: epoch + 1, trainLoss, valLoss });
+            this.trainingHistory.push({
+                epoch: epoch + 1,
+                trainLoss,
+                valLoss
+            });
             
-            // Callback for UI updates
-            if (onEpoch) {
-                onEpoch(epoch + 1, epochs, trainLoss, valLoss);
+            // Колбэк для обновления UI
+            if (onEpochCallback) {
+                onEpochCallback(epoch + 1, epochs, trainLoss, valLoss);
             }
             
-            // Cleanup
+            // Очистка памяти
             valResults.forEach(r => r.dispose());
             
             console.log(`Epoch ${epoch + 1}/${epochs} - Loss: ${trainLoss.toFixed(6)}, Val: ${valLoss.toFixed(6)}`);
             
-            // Early stopping
-            if (epoch > 5 && trainLoss < 0.0001) {
-                console.log('✅ Early stopping');
+            // Простая ранняя остановка
+            if (epoch > 10 && trainLoss < 0.0001) {
+                console.log('✅ Early stopping triggered');
                 break;
             }
         }
@@ -94,7 +98,7 @@ export class GRUModel {
         this.isTrained = true;
         console.log('✅ Training complete');
         
-        return this.lossHistory;
+        return this.trainingHistory;
     }
 
     evaluate(X_test, y_test) {
@@ -107,28 +111,29 @@ export class GRUModel {
         const results = this.model.evaluate(X_test, y_test, {verbose: 0});
         const loss = results[0].dataSync()[0];
         
-        // Predictions
+        // Предсказания для расчета точности
         const predictions = this.model.predict(X_test);
         const yPred = predictions.dataSync();
         const yTrue = y_test.dataSync();
         
-        // Direction accuracy
-        let correct = 0;
+        // Точность направления (вверх/вниз)
+        let correctDirection = 0;
         for (let i = 0; i < yTrue.length; i++) {
             if ((yTrue[i] > 0 && yPred[i] > 0) || (yTrue[i] < 0 && yPred[i] < 0)) {
-                correct++;
+                correctDirection++;
             }
         }
         
-        const accuracy = (correct / yTrue.length) * 100;
+        const accuracy = (correctDirection / yTrue.length) * 100;
         
         // RMSE
-        let sumSq = 0;
+        let sumSquared = 0;
         for (let i = 0; i < yTrue.length; i++) {
-            sumSq += Math.pow(yTrue[i] - yPred[i], 2);
+            sumSquared += Math.pow(yTrue[i] - yPred[i], 2);
         }
-        const rmse = Math.sqrt(sumSq / yTrue.length);
+        const rmse = Math.sqrt(sumSquared / yTrue.length);
         
+        // Очистка
         predictions.dispose();
         results.forEach(r => r.dispose());
         
@@ -174,7 +179,7 @@ export class GRUModel {
                 confidence: pred.confidence
             });
             
-            // Update sequence for next prediction
+            // Обновляем последовательность для следующего предсказания
             if (i < steps - 1) {
                 const currentData = currentInput.dataSync();
                 const newSeq = Array.from(currentData).slice(1);
@@ -189,9 +194,21 @@ export class GRUModel {
         return predictions;
     }
 
+    getTrainingHistory() {
+        return this.trainingHistory;
+    }
+
     dispose() {
         if (this.model) {
             this.model.dispose();
         }
+        this.trainingHistory = [];
     }
+}
+
+// Экспортируем класс
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { GRUModel };
+} else {
+    window.GRUModel = GRUModel;
 }
