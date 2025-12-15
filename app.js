@@ -421,4 +421,84 @@ class StockPredictorApp {
             // Обновляем отображение
             this.updatePredictionsDisplay(predictions);
             
-            this.showStatus('✅ 5-day
+            this.showStatus('✅ 5-day returns predictions ready!', 'success');
+            
+        } catch (error) {
+            console.error('💥 Ошибка при предсказании:', error);
+            this.showStatus(`❌ Prediction error: ${error.message}`, 'error');
+        } finally {
+            predictBtn.disabled = false;
+            predictBtn.innerHTML = '🔮 Predict Next 5 Days';
+        }
+    }
+    
+    updatePredictionsDisplay(predictions) {
+        const grid = document.getElementById('predictionGrid');
+        
+        predictions.forEach(pred => {
+            const dayElement = grid.querySelector(`.prediction-day:nth-child(${pred.day})`);
+            if (dayElement) {
+                // Отображаем доходность в процентах
+                const returnPercent = (pred.predictedReturn * 100).toFixed(2);
+                dayElement.querySelector('.prediction-value').textContent = 
+                    `${pred.direction === 'UP' ? '+' : ''}${returnPercent}%`;
+                dayElement.querySelector('.prediction-value').className = `prediction-value ${pred.direction.toLowerCase()}`;
+                dayElement.querySelector('.prediction-confidence').textContent = 
+                    `Confidence: ${pred.confidence} | Annualized: ${(pred.annualizedReturn * 100).toFixed(2)}%`;
+            }
+        });
+    }
+    
+    updateProgress(percent, text) {
+        const fill = document.getElementById('progressFill');
+        const textElem = document.getElementById('progressText');
+        
+        if (fill) fill.style.width = `${percent}%`;
+        if (textElem) textElem.textContent = text;
+        
+        console.log(`📊 Прогресс: ${percent}% - ${text}`);
+    }
+    
+    showStatus(message, type = 'info') {
+        console.log(`📢 Статус: ${message}`);
+        
+        const container = document.getElementById('statusContainer');
+        if (!container) {
+            console.warn('statusContainer не найден');
+            return;
+        }
+        
+        const status = document.createElement('div');
+        status.className = `status ${type} active`;
+        status.textContent = message;
+        
+        // Удаляем старые статусы
+        const oldStatuses = container.querySelectorAll('.status');
+        oldStatuses.forEach(s => {
+            if (s !== status) s.remove();
+        });
+        
+        container.appendChild(status);
+        
+        // Автоудаление через 5 секунд
+        setTimeout(() => {
+            if (status.parentNode) {
+                status.classList.remove('active');
+                setTimeout(() => status.remove(), 300);
+            }
+        }, 5000);
+    }
+}
+
+// Запускаем приложение
+console.log('🚀 Запускаем приложение...');
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('📄 DOM загружен, создаем приложение...');
+        window.app = new StockPredictorApp();
+    });
+} else {
+    console.log('📄 DOM уже загружен, создаем приложение...');
+    window.app = new StockPredictorApp();
+}
