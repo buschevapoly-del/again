@@ -1,19 +1,14 @@
-// gru.js - GRU МОДЕЛЬ ДЛЯ ПРЕДСКАЗАНИЯ ДОХОДНОСТИ
+// gru.js - SIMPLE GRU MODEL
 export class GRUModel {
     constructor() {
-        console.log('GRUModel initialized for returns prediction');
+        console.log('✅ GRUModel created');
         this.model = null;
-        this.history = null;
         this.isTrained = false;
-        this.trainingLosses = [];
-        this.validationLosses = [];
+        this.lossHistory = [];
     }
 
-    /**
-     * Строит GRU модель для регрессии (предсказание доходности)
-     */
     buildModel(inputShape) {
-        console.log('Building GRU regression model...');
+        console.log('🏗️ Building GRU model...');
         
         if (this.model) {
             this.model.dispose();
@@ -21,180 +16,130 @@ export class GRUModel {
         
         this.model = tf.sequential();
         
-        // Первый GRU слой
+        // GRU Layer
         this.model.add(tf.layers.gru({
-            units: 128,
-            returnSequences: true,
-            inputShape: inputShape
+            units: 64,
+            inputShape: inputShape,
+            returnSequences: false
         }));
         
         this.model.add(tf.layers.dropout({rate: 0.2}));
         
-        // Второй GRU слой
-        this.model.add(tf.layers.gru({
-            units: 64
-        }));
-        
-        this.model.add(tf.layers.dropout({rate: 0.2}));
-        
-        // Полносвязные слои
+        // Dense Layer
         this.model.add(tf.layers.dense({
             units: 32,
             activation: 'relu'
         }));
         
-        // Выходной слой (1 значение - предсказанная доходность)
+        // Output Layer (single value prediction)
         this.model.add(tf.layers.dense({
             units: 1
         }));
         
-        // Компиляция для регрессии
+        // Compile for regression
         this.model.compile({
             optimizer: tf.train.adam(0.001),
             loss: 'meanSquaredError',
             metrics: ['mse']
         });
         
-        console.log('✅ Regression model built');
-        
+        console.log('✅ Model built');
         return this.model;
     }
 
-    /**
-     * Обучает модель с ранней остановкой
-     */
-    async train(X_train, y_train, X_val, y_val, epochs = 50, batchSize = 32, onEpochEnd = null) {
+    async train(X_train, y_train, X_val, y_val, onEpoch) {
         if (!this.model) {
             throw new Error('Build model first');
         }
         
-        console.log('Training model...');
-        this.trainingLosses = [];
-        this.validationLosses = [];
+        console.log('🎯 Starting training...');
+        this.lossHistory = [];
         
-        // Параметры для ранней остановки
-        let bestValLoss = Infinity;
-        let patienceCounter = 0;
-        const patience = 8;
-        let bestWeights = null;
+        const epochs = 30;
         
         for (let epoch = 0; epoch < epochs; epoch++) {
-            // Одна эпоха обучения
+            // Train one epoch
             const history = await this.model.fit(X_train, y_train, {
                 epochs: 1,
-                batchSize: batchSize,
+                batchSize: 32,
                 shuffle: true,
                 verbose: 0
             });
             
             const trainLoss = history.history.loss[0];
             
-            // Валидация
+            // Validation loss
             const valResults = this.model.evaluate(X_val, y_val, {verbose: 0});
             const valLoss = valResults[0].dataSync()[0];
             
-            // Сохраняем метрики
-            this.trainingLosses.push(trainLoss);
-            this.validationLosses.push(valLoss);
+            this.lossHistory.push({ epoch: epoch + 1, trainLoss, valLoss });
             
-            // Ранняя остановка
-            if (valLoss < bestValLoss) {
-                bestValLoss = valLoss;
-                patienceCounter = 0;
-                // Сохраняем лучшие веса
-                bestWeights = this.model.getWeights();
-            } else {
-                patienceCounter++;
-                if (patienceCounter >= patience) {
-                    console.log(`Early stopping at epoch ${epoch + 1}`);
-                    if (bestWeights) {
-                        this.model.setWeights(bestWeights);
-                    }
-                    break;
-                }
+            // Callback for UI updates
+            if (onEpoch) {
+                onEpoch(epoch + 1, epochs, trainLoss, valLoss);
             }
             
-            // Колбэк для обновления UI
-            if (onEpochEnd) {
-                onEpochEnd(epoch + 1, {
-                    loss: trainLoss,
-                    val_loss: valLoss,
-                    patience: patienceCounter
-                }, epochs);
-            }
-            
-            // Освобождаем память
+            // Cleanup
             valResults.forEach(r => r.dispose());
             
-            console.log(`Epoch ${epoch + 1}/${epochs} - Loss: ${trainLoss.toFixed(6)}, Val Loss: ${valLoss.toFixed(6)}`);
+            console.log(`Epoch ${epoch + 1}/${epochs} - Loss: ${trainLoss.toFixed(6)}, Val: ${valLoss.toFixed(6)}`);
+            
+            // Early stopping
+            if (epoch > 5 && trainLoss < 0.0001) {
+                console.log('✅ Early stopping');
+                break;
+            }
         }
         
-        this.history = {
-            loss: this.trainingLosses,
-            val_loss: this.validationLosses
-        };
-        
         this.isTrained = true;
-        console.log('✅ Model training complete');
+        console.log('✅ Training complete');
         
-        return this.history;
+        return this.lossHistory;
     }
 
-    /**
-     * Оценивает модель на тестовых данных
-     */
     evaluate(X_test, y_test) {
         if (!this.isTrained) {
             throw new Error('Train model first');
         }
         
-        console.log('Evaluating model...');
+        console.log('📊 Evaluating model...');
         
-        // Получаем предсказания
+        const results = this.model.evaluate(X_test, y_test, {verbose: 0});
+        const loss = results[0].dataSync()[0];
+        
+        // Predictions
         const predictions = this.model.predict(X_test);
         const yPred = predictions.dataSync();
         const yTrue = y_test.dataSync();
         
-        // Рассчитываем RMSE
-        let sumSquaredError = 0;
-        for (let i = 0; i < yTrue.length; i++) {
-            const error = yTrue[i] - yPred[i];
-            sumSquaredError += error * error;
-        }
-        const mse = sumSquaredError / yTrue.length;
-        const rmse = Math.sqrt(mse);
-        
-        // Рассчитываем точность направления (sign accuracy)
-        let correctDirection = 0;
+        // Direction accuracy
+        let correct = 0;
         for (let i = 0; i < yTrue.length; i++) {
             if ((yTrue[i] > 0 && yPred[i] > 0) || (yTrue[i] < 0 && yPred[i] < 0)) {
-                correctDirection++;
+                correct++;
             }
         }
-        const directionAccuracy = (correctDirection / yTrue.length) * 100;
         
-        // Рассчитываем R-квадрат
-        const yMean = yTrue.reduce((a, b) => a + b, 0) / yTrue.length;
-        let totalSumSquares = 0;
+        const accuracy = (correct / yTrue.length) * 100;
+        
+        // RMSE
+        let sumSq = 0;
         for (let i = 0; i < yTrue.length; i++) {
-            totalSumSquares += Math.pow(yTrue[i] - yMean, 2);
+            sumSq += Math.pow(yTrue[i] - yPred[i], 2);
         }
-        const r2 = 1 - (sumSquaredError / totalSumSquares);
+        const rmse = Math.sqrt(sumSq / yTrue.length);
         
         predictions.dispose();
+        results.forEach(r => r.dispose());
         
         return {
+            loss: loss.toFixed(6),
             rmse: rmse.toFixed(6),
-            mse: mse.toFixed(6),
-            directionAccuracy: directionAccuracy.toFixed(2) + '%',
-            r2: r2.toFixed(4),
+            accuracy: accuracy.toFixed(2) + '%',
             samples: yTrue.length
         };
     }
 
-    /**
-     * Делает предсказание для одной последовательности
-     */
     predict(input) {
         if (!this.isTrained) {
             throw new Error('Train model first');
@@ -205,15 +150,12 @@ export class GRUModel {
         prediction.dispose();
         
         return {
-            predictedReturn: value,
+            value: value,
             direction: value > 0 ? 'UP' : 'DOWN',
-            confidence: Math.abs(value) * 10 // Простая метрика уверенности
+            confidence: Math.min(Math.abs(value) * 20, 100).toFixed(1) + '%'
         };
     }
 
-    /**
-     * Делает предсказания на несколько дней вперед (рекурсивно)
-     */
     predictSequence(input, steps = 5) {
         if (!this.isTrained) {
             throw new Error('Train model first');
@@ -223,59 +165,33 @@ export class GRUModel {
         let currentInput = input.clone();
         
         for (let i = 0; i < steps; i++) {
-            const pred = this.model.predict(currentInput);
-            const predValue = pred.dataSync()[0];
+            const pred = this.predict(currentInput);
             
             predictions.push({
                 day: i + 1,
-                predictedReturn: predValue,
-                direction: predValue > 0 ? 'UP' : 'DOWN',
-                confidence: Math.min(Math.abs(predValue) * 15, 100).toFixed(1) + '%'
+                value: pred.value,
+                direction: pred.direction,
+                confidence: pred.confidence
             });
             
-            // Обновляем вход для следующего предсказания
+            // Update sequence for next prediction
             if (i < steps - 1) {
-                // Сдвигаем последовательность
-                const newData = currentInput.dataSync();
-                const lookback = newData.length;
+                const currentData = currentInput.dataSync();
+                const newSeq = Array.from(currentData).slice(1);
+                newSeq.push(pred.value);
                 
-                // Создаем новую последовательность
-                const newSequence = [];
-                for (let j = 1; j < lookback; j++) {
-                    newSequence.push(newData[j]);
-                }
-                newSequence.push(predValue);
-                
-                // Очищаем старый тензор
                 currentInput.dispose();
-                
-                // Создаем новый
-                currentInput = tf.tensor3d([newSequence], [1, 1, lookback]);
+                currentInput = tf.tensor3d([newSeq], [1, 1, newSeq.length]);
             }
-            
-            pred.dispose();
         }
         
         currentInput.dispose();
-        
         return predictions;
     }
 
-    /**
-     * Возвращает историю обучения
-     */
-    getTrainingHistory() {
-        return this.history;
-    }
-
-    /**
-     * Очищает память
-     */
     dispose() {
         if (this.model) {
             this.model.dispose();
         }
-        this.trainingLosses = [];
-        this.validationLosses = [];
     }
 }
