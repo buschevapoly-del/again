@@ -116,7 +116,4 @@ export class DataLoader {
     getLatestSequence() {
         return tf.tensor3d([[[0.5, 0.6, 0.7]]], [1, 1, 3]);
     }
-} 
-
-
-
+}
