@@ -496,4 +496,18 @@ document.addEventListener('DOMContentLoaded', () => {
         window.app = new StockPredictorApp();
         console.log('✅ App initialized successfully');
         
-        // Глобальная функция для отлад
+        // Глобальная функция для отладки
+        window.debugApp = function() {
+            console.log('=== APP DEBUG INFO ===');
+            console.log('App instance:', window.app);
+            console.log('DataLoader:', window.app.dataLoader);
+            console.log('GRU Model:', window.app.gruModel);
+            console.log('Is processing:', window.app.isProcessing);
+            console.log('=== END DEBUG ===');
+        };
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize app:', error);
+        alert(`Application error: ${error.message}\n\nCheck console (F12) for details.`);
+    }
+});
