@@ -1,4 +1,4 @@
-// app.js
+// app.js - УПРОЩЕННАЯ ВЕРСИЯ
 import { DataLoader } from './data-loader.js';
 import { GRUModel } from './gru.js';
 
